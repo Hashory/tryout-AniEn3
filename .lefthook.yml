@@ -1,0 +1,8 @@
+pre-commit:
+  commands:
+    lint:
+      run: pnpm ng lint --fix
+
+    format:
+      glob: "*.{ts,html,css,json,md}"
+      run: pnpm prettier --write {staged_files}
