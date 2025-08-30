@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { AngularSplitModule } from 'angular-split';
+import { AnienTimelineComponent } from '../anien-timeline/anien-timeline';
 // import { TimelineComponent } from '../timeline/timeline.component';
 // import { PreviewComponent } from '../preview/preview.component';
 // import { NodeEditorComponent } from '../node-editor/node-editor.component';
@@ -9,6 +10,7 @@ import { AngularSplitModule } from 'angular-split';
   standalone: true,
   imports: [
     AngularSplitModule,
+    AnienTimelineComponent,
     // TimelineComponent, PreviewComponent, NodeEditorComponent
   ],
   template: `
@@ -25,7 +27,7 @@ import { AngularSplitModule } from 'angular-split';
           </as-split>
         </as-split-area>
         <as-split-area [size]="30">
-          <div class="pane-content">Timeline</div>
+          <app-anien-timeline></app-anien-timeline>
         </as-split-area>
       </as-split>
     </div>
