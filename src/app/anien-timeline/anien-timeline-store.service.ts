@@ -163,10 +163,10 @@ export class YjsTimelineService {
 
       const jsStrips: TimelineItem[][] = yTracks
         ? yTracks.map((yTrack) =>
-            yTrack
-              .map((yItem) => this.convertYToJs(yItem))
-              .filter((item): item is TimelineItem => item !== null),
-          )
+          yTrack
+            .map((yItem) => this.convertYToJs(yItem))
+            .filter((item): item is TimelineItem => item !== null),
+        )
         : [];
 
       const folder: Folder = {

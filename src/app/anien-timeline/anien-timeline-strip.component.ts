@@ -1,6 +1,6 @@
 import { Component, input, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Strip } from './anien-timeline.types';
-import { YjsTimelineService } from './anien-timeline.service';
+import { YjsTimelineService } from './anien-timeline-store.service';
 
 @Component({
   selector: 'app-strip',
