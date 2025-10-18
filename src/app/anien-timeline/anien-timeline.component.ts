@@ -1,5 +1,5 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { YjsTimelineService } from './anien-timeline.service';
+import { YjsTimelineService } from './anien-timeline-store.service';
 import { TrackComponent } from './anien-timline-track.component';
 
 @Component({

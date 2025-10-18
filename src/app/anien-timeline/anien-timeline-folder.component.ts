@@ -1,6 +1,6 @@
 import { Component, input, inject, ChangeDetectionStrategy } from '@angular/core';
 import { Folder } from './anien-timeline.types';
-import { YjsTimelineService } from './anien-timeline.service';
+import { YjsTimelineService } from './anien-timeline-store.service';
 import { TrackComponent } from './anien-timline-track.component'; // Recursive import
 
 @Component({
