@@ -1,3 +1,6 @@
+import type * as Y from 'yjs';
+import type { TypedMap } from 'yjs-types';
+
 /**
  * Represents a single media strip on the timeline.
  */
@@ -37,3 +40,20 @@ export interface Folder {
   /** The type identifier for this object. */
   type: 'folder';
 }
+
+export type YStripFields = Strip & Record<string, unknown>;
+
+export type YStrip = TypedMap<YStripFields>;
+
+export type YFolderFields = Omit<Folder, 'strips'> &
+  Record<string, unknown> & {
+    strips: YTrackList;
+  };
+
+export type YFolder = TypedMap<YFolderFields>;
+
+export type YTimelineEntry = YStrip | YFolder;
+
+export type YTrack = Y.Array<YTimelineEntry>;
+
+export type YTrackList = Y.Array<YTrack>;

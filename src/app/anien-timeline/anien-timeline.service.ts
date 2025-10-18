@@ -1,35 +1,18 @@
 import { Injectable, signal, untracked, computed, Signal } from '@angular/core';
 import * as Y from 'yjs';
-import type { TypedMap } from 'yjs-types';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { Folder, Strip } from './anien-timeline.types';
+import {
+  Folder,
+  Strip,
+  YFolder,
+  YStrip,
+  YStripFields,
+  YTimelineEntry,
+  YTrack,
+  YTrackList,
+} from './anien-timeline.types';
 
 type TimelineItem = Strip | Folder;
-
-interface YStripFields extends Record<string, unknown> {
-  id: Strip['id'];
-  type: Strip['type'];
-  source: Strip['source'];
-  startFrame: Strip['startFrame'];
-  length: Strip['length'];
-}
-
-type YStrip = TypedMap<YStripFields>;
-
-interface YFolderFields extends Record<string, unknown> {
-  id: Folder['id'];
-  type: Folder['type'];
-  name: Folder['name'];
-  startFrame: Folder['startFrame'];
-  length: Folder['length'];
-  root?: Folder['root'];
-  strips: Y.Array<Y.Array<YStrip | TypedMap<YFolderFields>>>;
-}
-
-type YFolder = TypedMap<YFolderFields>;
-type YTimelineEntry = YStrip | YFolder;
-type YTrack = Y.Array<YTimelineEntry>;
-type YTrackList = YFolderFields['strips'];
 
 interface TimelineUpdateMessage {
   type: 'timeline-update';
