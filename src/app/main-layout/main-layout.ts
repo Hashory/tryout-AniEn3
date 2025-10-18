@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { AngularSplitModule } from 'angular-split';
-import { AnienTimelineComponent } from '../anien-timeline/anien-timeline';
+import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.component';
 // import { TimelineComponent } from '../timeline/timeline.component';
 // import { PreviewComponent } from '../preview/preview.component';
 // import { NodeEditorComponent } from '../node-editor/node-editor.component';
