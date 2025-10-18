@@ -1,17 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { AnienTimeline } from './anien-timeline';
+import { AnienTimelineComponent } from './anien-timeline.component';
 
-describe('AnienTimeline', () => {
-  let component: AnienTimeline;
-  let fixture: ComponentFixture<AnienTimeline>;
+describe('AnienTimelineComponent', () => {
+  let component: AnienTimelineComponent;
+  let fixture: ComponentFixture<AnienTimelineComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [AnienTimeline],
+      imports: [AnienTimelineComponent],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(AnienTimeline);
+    fixture = TestBed.createComponent(AnienTimelineComponent);
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
