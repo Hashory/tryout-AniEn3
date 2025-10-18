@@ -1,6 +1,6 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { YjsTimelineService } from './anien-timeline-store.service';
-import { TrackComponent } from './anien-timline-track.component';
+import { TrackComponent } from './anien-timeline-track.component';
 
 @Component({
   selector: 'app-anien-timeline',
