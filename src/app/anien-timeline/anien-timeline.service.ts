@@ -1,13 +1,40 @@
 import { Injectable, signal, untracked, computed, Signal } from '@angular/core';
 import * as Y from 'yjs';
+import type { TypedMap } from 'yjs-types';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { Folder, Strip } from './anien-timeline.types';
 
-// Type aliases for Y.js shared types to improve readability
-type YStrip = Y.Map<unknown>;
-type YFolder = Y.Map<unknown>;
-type YTrack = Y.Array<YStrip | YFolder>;
-type YTrackList = Y.Array<YTrack>;
+type TimelineItem = Strip | Folder;
+
+interface YStripFields extends Record<string, unknown> {
+  id: Strip['id'];
+  type: Strip['type'];
+  source: Strip['source'];
+  startFrame: Strip['startFrame'];
+  length: Strip['length'];
+}
+
+type YStrip = TypedMap<YStripFields>;
+
+interface YFolderFields extends Record<string, unknown> {
+  id: Folder['id'];
+  type: Folder['type'];
+  name: Folder['name'];
+  startFrame: Folder['startFrame'];
+  length: Folder['length'];
+  root?: Folder['root'];
+  strips: Y.Array<Y.Array<YStrip | TypedMap<YFolderFields>>>;
+}
+
+type YFolder = TypedMap<YFolderFields>;
+type YTimelineEntry = YStrip | YFolder;
+type YTrack = Y.Array<YTimelineEntry>;
+type YTrackList = YFolderFields['strips'];
+
+interface TimelineUpdateMessage {
+  type: 'timeline-update';
+  data: TimelineItem | null;
+}
 
 @Injectable({
   providedIn: 'root',
@@ -30,7 +57,7 @@ export class YjsTimelineService {
    * Public computed signal exposing the tracks of the root folder.
    * Components can consume this to render the top-level tracks.
    */
-  public readonly rootTracks: Signal<(Strip | Folder)[][]> = computed(() => {
+  public readonly rootTracks: Signal<TimelineItem[][]> = computed(() => {
     return this.rawTimeline()?.strips ?? [];
   });
 
@@ -47,7 +74,7 @@ export class YjsTimelineService {
     this.indexeddbProvider = new IndexeddbPersistence('anien-timeline-db', this.doc);
     this.broadcastChannel = new BroadcastChannel('anien-timeline-broadcast-channel');
 
-    this.yRootFolder = this.doc.getMap('timelineRoot');
+    this.yRootFolder = this.doc.getMap('timelineRoot') as YFolder;
 
     // Listen for any deep changes within the root folder structure
     this.yRootFolder.observeDeep(() => {
@@ -84,15 +111,19 @@ export class YjsTimelineService {
     this.doc.on('update', () => {
       // Broadcast the updated timeline state to all clients
       const updatedTimeline = this.rawTimeline();
-      this.broadcastChannel.postMessage({ type: 'timeline-update', data: updatedTimeline });
+      const message: TimelineUpdateMessage = {
+        type: 'timeline-update',
+        data: updatedTimeline,
+      };
+      this.broadcastChannel.postMessage(message);
     });
 
     // Listen for updates from other tabs/windows
-    this.broadcastChannel.onmessage = (event) => {
+    this.broadcastChannel.onmessage = (event: MessageEvent<TimelineUpdateMessage>) => {
       const message = event.data;
       if (message.type === 'timeline-update') {
-        const incomingData = message.data as Folder | null;
-        if (incomingData) {
+        const incomingData = message.data;
+        if (incomingData?.type === 'folder') {
           // Update the local Y.js document to reflect the incoming changes
           // This is a simplified approach; in a real app, you'd want to
           // apply only the necessary changes rather than overwriting.
@@ -110,55 +141,63 @@ export class YjsTimelineService {
    * @param yData The Y.js Map to convert.
    * @returns A plain JS object (Folder, Strip), or null if invalid.
    */
-  private convertYToJs(yData: Y.Map<unknown>): (Folder | Strip) | null {
-    const type = yData.get('type');
+  private convertYToJs(yData: YTimelineEntry): TimelineItem | null {
     const id = yData.get('id');
+    const type = yData.get('type');
 
     if (!id || !type) {
-      // Not a valid data structure (e.g., still initializing)
       return null;
     }
 
-    if (type === 'strip') {
+    if (type === 'strip' && this.isYStrip(yData)) {
+      const source = yData.get('source');
+      const startFrame = yData.get('startFrame');
+      const length = yData.get('length');
+
+      if (source === undefined || startFrame === undefined || length === undefined) {
+        return null;
+      }
+
       const strip: Strip = {
-        id: id,
+        id,
         type: 'strip',
-        source: yData.get('source'),
-        startFrame: yData.get('startFrame'),
-        length: yData.get('length'),
+        source,
+        startFrame,
+        length,
       };
       return strip;
     }
 
-    if (type === 'folder') {
-      const yTracks = yData.get('strips') as YTrackList | undefined;
-      let jsStrips: (Strip | Folder)[][] = [];
+    if (type === 'folder' && this.isYFolder(yData)) {
+      const name = yData.get('name');
+      const startFrame = yData.get('startFrame');
+      const length = yData.get('length');
+      const yTracks: YTrackList | undefined = yData.get('strips');
 
-      if (yTracks) {
-        // Convert Y.Array<Y.Array<Y.Map>> into (Strip | Folder)[][]
-        jsStrips = yTracks.map((yTrack) => {
-          // yTrack is a Y.Array (a single track)
-          // Recursively convert each item (Y.Map) in the track
-          return yTrack
-            .map((yItem) => this.convertYToJs(yItem))
-            .filter((item) => item !== null) as (Strip | Folder)[];
-        });
+      if (name === undefined || startFrame === undefined || length === undefined) {
+        return null;
       }
 
+      const jsStrips: TimelineItem[][] = yTracks
+        ? yTracks.map((yTrack) =>
+            yTrack
+              .map((yItem) => this.convertYToJs(yItem))
+              .filter((item): item is TimelineItem => item !== null),
+          )
+        : [];
+
       const folder: Folder = {
-        id: id,
+        id,
         type: 'folder',
-        name: yData.get('name'),
-        startFrame: yData.get('startFrame'),
-        length: yData.get('length'),
+        name,
+        startFrame,
+        length,
         root: yData.get('root') ?? false,
         strips: jsStrips,
       };
       return folder;
     }
 
-    // Should not happen if data is well-formed
-    console.error(`Unknown Yjs data type: ${type}`);
     return null;
   }
 
@@ -174,7 +213,8 @@ export class YjsTimelineService {
       this.yRootFolder.set('length', 240); // Default length
       this.yRootFolder.set('root', true);
       // Initialize with an empty list of tracks
-      this.yRootFolder.set('strips', new Y.Array<YTrack>());
+      const trackList: YTrackList = new Y.Array<YTrack>();
+      this.yRootFolder.set('strips', trackList);
     });
   }
 
@@ -185,9 +225,14 @@ export class YjsTimelineService {
    */
   public addTrack(): void {
     this.doc.transact(() => {
-      const yTracks = this.yRootFolder.get('strips') as YTrackList;
+      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
+
+      if (!yTracks) {
+        console.error('Root tracks collection not initialized.');
+        return;
+      }
       // A new track is an empty Y.Array
-      const newTrack: YTrack = new Y.Array<YFolder | YStrip>();
+      const newTrack: YTrack = new Y.Array<YTimelineEntry>();
       yTracks.push([newTrack]);
     });
   }
@@ -206,7 +251,12 @@ export class YjsTimelineService {
     },
   ): void {
     this.doc.transact(() => {
-      const yTracks = this.yRootFolder.get('strips') as YTrackList;
+      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
+
+      if (!yTracks) {
+        console.error('Root tracks collection not initialized.');
+        return;
+      }
       const targetTrack = yTracks.get(trackIndex); // This is a YTrack (Y.Array)
 
       if (!targetTrack) {
@@ -214,7 +264,7 @@ export class YjsTimelineService {
         return;
       }
 
-      const newYStrip: YStrip = new Y.Map();
+      const newYStrip = new Y.Map<YStripFields>() as YStrip;
       newYStrip.set('id', crypto.randomUUID());
       newYStrip.set('type', 'strip');
       newYStrip.set('source', stripData.source);
@@ -233,7 +283,12 @@ export class YjsTimelineService {
    */
   public deleteItemFromTrack(trackIndex: number, itemId: string): void {
     this.doc.transact(() => {
-      const yTracks = this.yRootFolder.get('strips') as YTrackList;
+      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
+
+      if (!yTracks) {
+        console.error('Root tracks collection not initialized.');
+        return;
+      }
       const targetTrack = yTracks.get(trackIndex); // YTrack
 
       if (!targetTrack) {
@@ -244,7 +299,11 @@ export class YjsTimelineService {
       // Find the index of the item with the matching ID
       let itemIndex = -1;
       for (let i = 0; i < targetTrack.length; i++) {
-        if (targetTrack.get(i).get('id') === itemId) {
+        const item = targetTrack.get(i);
+        if (!item) {
+          continue;
+        }
+        if (item.get('id') === itemId) {
           itemIndex = i;
           break;
         }
@@ -260,4 +319,12 @@ export class YjsTimelineService {
 
   // ... Other CRUD methods (moveItem, updateItem, createNestedFolder, etc.)
   // would be implemented here, all manipulating the Y.js data directly.
+
+  private isYStrip(value: YTimelineEntry | undefined): value is YStrip {
+    return value?.get('type') === 'strip';
+  }
+
+  private isYFolder(value: YTimelineEntry | undefined): value is YFolder {
+    return value?.get('type') === 'folder';
+  }
 }
