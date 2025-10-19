@@ -38,6 +38,7 @@ import { TrackComponent } from './anien-timeline-track.component';
         display: grid;
         grid-template-rows: 25px auto;
         grid-template-columns: 33px auto;
+        column-gap: 3px;
       }
 
       .timeline-header {
@@ -57,7 +58,6 @@ import { TrackComponent } from './anien-timeline-track.component';
         grid-column: 2 / span 1;
         grid-row: 2 / span 1;
         scrollbar-width: none;
-        padding-left: 3px;
 
         background-color: #0b0f12;
         background-image: repeating-linear-gradient(
