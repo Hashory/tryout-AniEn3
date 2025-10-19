@@ -37,6 +37,12 @@ export class YjsTimelineService {
   private readonly rawTimeline = signal<Folder | null>(null);
 
   /**
+   * Public read-only signal exposing the raw timeline snapshot.
+   * This is the "Model" that the ViewModel layer will consume.
+   */
+  public readonly timelineSnapshot: Signal<Folder | null> = this.rawTimeline.asReadonly();
+
+  /**
    * Public computed signal exposing the tracks of the root folder.
    * Components can consume this to render the top-level tracks.
    */
