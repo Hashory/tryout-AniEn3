@@ -19,10 +19,10 @@ import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.compone
         <as-split-area [size]="70">
           <as-split direction="horizontal">
             <as-split-area [size]="60">
-              <div class="pane-content">Preview</div>
+              <div class="pane-content" style="border-radius: 0 8px 8px 8px;">Preview</div>
             </as-split-area>
             <as-split-area [size]="40">
-              <div class="pane-content">Node Editor</div>
+              <div class="pane-content" style="border-radius: 8px 0 8px 8px;">Node Editor</div>
             </as-split-area>
           </as-split>
         </as-split-area>
