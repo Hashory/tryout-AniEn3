@@ -26,7 +26,7 @@ import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.compone
             </as-split-area>
           </as-split>
         </as-split-area>
-        <as-split-area [size]="30">
+        <as-split-area [size]="50">
           <app-anien-timeline></app-anien-timeline>
         </as-split-area>
       </as-split>
@@ -49,7 +49,7 @@ import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.compone
         display: flex;
         justify-content: center;
         align-items: center;
-        background-color: #2c2c2c;
+        background-color: #101417;
         color: white;
         font-family: sans-serif;
       }

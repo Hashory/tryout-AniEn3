@@ -1,34 +1,72 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { YjsTimelineService } from './anien-timeline-store.service';
+import { TimelineStateService } from './anien-timeline-state.service';
 import { TrackComponent } from './anien-timeline-track.component';
 
 @Component({
   selector: 'app-anien-timeline',
   template: `
-    <h2>{{ timelineName() }}</h2>
-    <button (click)="addTrack()">Add Root Track</button>
-    <button (click)="addTestStrip()">Add Test Strip (Track 0)</button>
+    <div class="timeline-header">
+      <button (click)="addTrack()">+</button>
+      <div class="timeline-ruller" style="color:white;">Ruller Here</div>
+    </div>
+    <div class="timeline-sidebar"></div>
 
-    <div class="timeline-container">
-      @for (track of tracks(); track track; let i = $index) {
-        <app-track [trackItems]="track" [trackIndex]="i" />
+    <div class="timeline-main">
+      <!-- @for (track of tracks(); track track; let i = $index) {
+        <app-track [trackItems]="track" [trackIndex]="i">
+          @for(item of track.strips; item item; let j = $index) {
+            @if (item.type === 'strip') {
+              <app-strip [strip]="item" />
+            } @else if (item.type === 'folder') {
+              <app-folder-header [folder]="item" />
+            }
+          }
+        </app-track>
       } @empty {
-        <p>No tracks yet. Add one!</p>
-      }
+        <p>No tracks yet.</p>
+      } -->
     </div>
   `,
   styles: [
     `
       :host {
         display: block;
-        font-family: sans-serif;
+        background: #101417;
+        width: 100%;
+        height: 100%;
+        border-radius: 8px 8px 0px 0px;
+        display: grid;
+        grid-template-rows: 25px auto;
+        grid-template-columns: 33px auto;
       }
-      .timeline-container {
-        margin-top: 1rem;
-        border: 1px solid #555;
-        padding: 0.5rem;
-        background: #2a2a2a;
-        color: white;
+
+      .timeline-header {
+        grid-column: 1 / span 2;
+        grid-row: 1 / 2;
+
+        display: grid;
+        grid-template-columns: 33px auto;
+      }
+
+      .timeline-sidebar {
+        grid-column: 1 / 2;
+        grid-row: 2 / span 1;
+      }
+
+      .timeline-main {
+        grid-column: 2 / span 1;
+        grid-row: 2 / span 1;
+        scrollbar-width: none;
+        padding-left: 3px;
+
+        background-color: #0b0f12;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #262a2e,
+          #262a2e 30px,
+          #0b0f12 30px,
+          #0b0f12 34px
+        );
       }
     `,
   ],
@@ -37,24 +75,20 @@ import { TrackComponent } from './anien-timeline-track.component';
   imports: [TrackComponent],
 })
 export class AnienTimelineComponent {
-  private readonly timelineService = inject(YjsTimelineService);
+  private readonly stateService = inject(TimelineStateService);
 
-  public readonly tracks = this.timelineService.rootTracks;
-  public readonly timelineName = this.timelineService.timelineName;
+  public readonly tracks = this.stateService.rootTracksVM;
+  public readonly timelineName = this.stateService.timelineName;
 
   public addTrack(): void {
-    this.timelineService.addTrack();
+    this.stateService.addTrack();
   }
 
   // Helper for testing
   public addTestStrip(): void {
     if (this.tracks().length === 0) {
-      this.timelineService.addTrack();
+      this.stateService.addTrack();
     }
-    this.timelineService.addStripToTrack(0, {
-      source: `Image[${Math.floor(Math.random() * 100)}].tga`,
-      startFrame: 0,
-      length: 120,
-    });
+    this.stateService.addTrack();
   }
 }

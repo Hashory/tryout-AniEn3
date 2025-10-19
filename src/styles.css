@@ -7,3 +7,8 @@ body {
   width: 100dvw;
   height: 100dvh;
 }
+
+/** Split Gutter Style **/
+.as-split-gutter {
+  background-color: #1c2024 !important;
+}
