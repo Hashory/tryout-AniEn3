@@ -1,5 +1,7 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { TimelineStateService } from './anien-timeline-state.service';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
 
 @Component({
   selector: 'app-anien-timeline',
@@ -41,9 +43,21 @@ import { TimelineStateService } from './anien-timeline-state.service';
               "
               [style.left]="'calc(var(--timeline-frame-size) * ' + track.startFrame + ')'"
             >
-              <div class="folder-header">{{ track.name }}</div>
+              <div class="folder-header" [class.expanded]="track.isExpanded">
+                <button type="button" (click)="toggleFolder(track.id)">
+                  <ng-icon
+                    name="heroChevronRightMicro"
+                    [style.rotate]="track.isExpanded ? '90deg' : '0deg'"
+                  />
+                </button>
+                <div>{{ track.name }}</div>
+                <button>
+                  <ng-icon name="heroChevronUpDownMicro" [style.rotate]="'90deg'" />
+                </button>
+              </div>
               <div
                 class="folder-content-holder"
+                [style.display]="track.isExpanded ? 'block' : 'none'"
                 [style.height]="
                   'calc(' +
                   track.trackLength +
@@ -142,7 +156,26 @@ import { TimelineStateService } from './anien-timeline-state.service';
         color: #e0e3e8;
         align-content: center;
         padding: 0 var(--timeline-strip-padding-x);
+        border-radius: 10px 10px var(--timeline-folder-offset) var(--timeline-folder-offset);
+        display: grid;
+        grid-template-columns: 20px auto 40px;
+        gap: 3px;
+      }
+
+      .timeline-main .folder .folder-header.expanded {
         border-radius: 10px 10px 0 0;
+      }
+
+      .timeline-main .folder .folder-header button {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: inherit;
       }
 
       .timeline-main .folder .folder-content-holder {
@@ -169,7 +202,8 @@ import { TimelineStateService } from './anien-timeline-state.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
-  imports: [],
+  imports: [NgIcon],
+  viewProviders: [provideIcons({ heroChevronRightMicro, heroChevronUpDownMicro })],
 })
 export class AnienTimelineComponent {
   private readonly stateService = inject(TimelineStateService);
@@ -179,6 +213,10 @@ export class AnienTimelineComponent {
 
   public addTrack(): void {
     this.stateService.addTrack();
+  }
+
+  public toggleFolder(trackId: string): void {
+    this.stateService.toggleFolderExpansion(trackId);
   }
 
   // Helper for testing

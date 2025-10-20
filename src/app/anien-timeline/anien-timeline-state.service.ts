@@ -12,7 +12,7 @@ export interface StripVM extends Strip {
 
 export interface FolderVM extends Omit<Folder, 'strips'> {
   isSelected: boolean;
-  isCollapsed: boolean;
+  isExpanded: boolean;
   trackOrder: number;
   trackLength: number;
 }
@@ -33,7 +33,7 @@ export class TimelineStateService {
   // UI State Signals
   private readonly _currentFrame = signal<number>(0);
   private readonly _selectedItemIds = signal<Set<string>>(new Set<string>());
-  private readonly _collapsedFolderIds = signal<Set<string>>(new Set<string>());
+  private readonly _expandedFolderIds = signal<Set<string>>(new Set<string>());
   private readonly _zoomLevel = signal<number>(1);
 
   // Expose read-only signals
@@ -69,8 +69,19 @@ export class TimelineStateService {
       startFrame: 20,
       length: 200,
       isSelected: false,
-      isCollapsed: false,
+      isExpanded: true,
       trackOrder: 1,
+      trackLength: 2,
+    },
+    {
+      type: 'folder',
+      id: 'folder-2',
+      name: 'Folder 2',
+      startFrame: 20,
+      length: 200,
+      isSelected: false,
+      isExpanded: false,
+      trackOrder: 5,
       trackLength: 2,
     },
   ]);
@@ -88,7 +99,7 @@ export class TimelineStateService {
 
   //   // UI状態を取得
   //   const selectedIds = this._selectedItemIds();
-  //   const collapsedIds = this._collapsedFolderIds();
+  //   const expandedIds = this._expandedFolderIds();
 
   //   // Modelの 'strips' を再帰的に 'stripsVM' に変換する
   //   const convertToVM = (item: Strip | Folder): StripVM | FolderVM => {
@@ -100,7 +111,7 @@ export class TimelineStateService {
   //     }
 
   //     if (item.type === 'folder') {
-  //       const isCollapsed = collapsedIds.has(item.id);
+  //       const isExpanded = expandedIds.has(item.id);
 
   //       // フォルダ内のトラックも再帰的に変換
   //       const nestedTracksVM = item.strips.map(
@@ -110,7 +121,7 @@ export class TimelineStateService {
   //       const folderVM: FolderVM = {
   //         ...item,
   //         isSelected,
-  //         isCollapsed,
+  //         isExpanded,
   //         strips: nestedTracksVM,
   //       };
   //       return folderVM;
@@ -148,15 +159,28 @@ export class TimelineStateService {
     this._selectedItemIds.set(new Set());
   }
 
-  public toggleFolderCollapse(id: string): void {
-    this._collapsedFolderIds.update((currentSet) => {
-      if (currentSet.has(id)) {
-        currentSet.delete(id);
+  public toggleFolderExpansion(id: string): void {
+    let nextExpandedState = false;
+
+    this._expandedFolderIds.update((currentSet) => {
+      const updated = new Set(currentSet);
+      if (updated.has(id)) {
+        updated.delete(id);
+        nextExpandedState = false;
       } else {
-        currentSet.add(id);
+        updated.add(id);
+        nextExpandedState = true;
       }
-      return new Set(currentSet);
+      return updated;
     });
+
+    this.rootTracksVM.update((tracks) =>
+      tracks.map((track) =>
+        track.type === 'folder' && track.id === id
+          ? { ...track, isExpanded: nextExpandedState }
+          : track,
+      ),
+    );
   }
 
   // Model操作の委譲
