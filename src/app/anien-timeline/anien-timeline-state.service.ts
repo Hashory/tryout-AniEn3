@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject, Signal } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { YjsTimelineService } from './anien-timeline-store.service';
 import { Strip, Folder } from './anien-timeline.types';
 
@@ -7,13 +7,14 @@ import { Strip, Folder } from './anien-timeline.types';
 
 export interface StripVM extends Strip {
   isSelected: boolean;
+  trackOrder: number;
 }
 
-export interface FolderVM extends Folder {
+export interface FolderVM extends Omit<Folder, 'strips'> {
   isSelected: boolean;
   isCollapsed: boolean;
-  // strips プロパティも (StripVM | FolderVM)[][] に上書きする
-  strips: (StripVM | FolderVM)[][];
+  trackOrder: number;
+  trackLength: number;
 }
 
 type TimelineItemVM = StripVM | FolderVM;
@@ -42,54 +43,86 @@ export class TimelineStateService {
 
   // --- 5. ViewModel (加工済みデータ) を computed で作成・公開 ---
 
+  public readonly rootTracksVM = signal<TrackVM>([
+    {
+      type: 'strip',
+      id: 'strip-1',
+      source: 'Video Clip 1',
+      startFrame: 0,
+      length: 150,
+      isSelected: false,
+      trackOrder: 0,
+    },
+    {
+      type: 'strip',
+      id: 'strip-2',
+      source: 'Video Clip 2',
+      startFrame: 20,
+      length: 150,
+      isSelected: false,
+      trackOrder: 2,
+    },
+    {
+      type: 'folder',
+      id: 'folder-1',
+      name: 'Folder 1',
+      startFrame: 20,
+      length: 200,
+      isSelected: false,
+      isCollapsed: false,
+      trackOrder: 1,
+      trackLength: 2,
+    },
+  ]);
+
   /**
    * Model(生データ) と UI状態(選択状態など) をマージして、
    * Viewが消費するためのViewModelを生成する Signal。
    * * これが「作るのが大変になります」という問題を解決します。
    */
-  public readonly rootTracksVM: Signal<TrackVM[]> = computed(() => {
-    const rootModel = this.model();
-    if (!rootModel) {
-      return []; // Modelがロード中なら空を返す
-    }
+  // public readonly rootTracksVM: Signal<TrackVM[]> = computed(() => {
+  //   const rootModel = this.model();
+  //   if (!rootModel) {
+  //     return []; // Modelがロード中なら空を返す
+  //   }
 
-    // UI状態を取得
-    const selectedIds = this._selectedItemIds();
-    const collapsedIds = this._collapsedFolderIds();
+  //   // UI状態を取得
+  //   const selectedIds = this._selectedItemIds();
+  //   const collapsedIds = this._collapsedFolderIds();
 
-    // Modelの 'strips' を再帰的に 'stripsVM' に変換する
-    const convertToVM = (item: Strip | Folder): StripVM | FolderVM => {
-      const isSelected = selectedIds.has(item.id);
+  //   // Modelの 'strips' を再帰的に 'stripsVM' に変換する
+  //   const convertToVM = (item: Strip | Folder): StripVM | FolderVM => {
+  //     const isSelected = selectedIds.has(item.id);
 
-      if (item.type === 'strip') {
-        const stripVM: StripVM = { ...item, isSelected };
-        return stripVM;
-      }
+  //     if (item.type === 'strip') {
+  //       const stripVM: StripVM = { ...item, isSelected };
+  //       return stripVM;
+  //     }
 
-      if (item.type === 'folder') {
-        const isCollapsed = collapsedIds.has(item.id);
+  //     if (item.type === 'folder') {
+  //       const isCollapsed = collapsedIds.has(item.id);
 
-        // フォルダ内のトラックも再帰的に変換
-        const nestedTracksVM = item.strips.map(
-          (track) => track.map(convertToVM), // ★再帰呼び出し
-        );
+  //       // フォルダ内のトラックも再帰的に変換
+  //       const nestedTracksVM = item.strips.map(
+  //         (track) => track.map(convertToVM), // ★再帰呼び出し
+  //       );
 
-        const folderVM: FolderVM = {
-          ...item,
-          isSelected,
-          isCollapsed,
-          strips: nestedTracksVM,
-        };
-        return folderVM;
-      }
+  //       const folderVM: FolderVM = {
+  //         ...item,
+  //         isSelected,
+  //         isCollapsed,
+  //         strips: nestedTracksVM,
+  //       };
+  //       return folderVM;
+  //     }
 
-      // 型エラーを防ぐ (起こらないはず)
-      throw new Error('Unknown item type');
-    };
+  //     // 型エラーを防ぐ (起こらないはず)
+  //     throw new Error('Unknown item type');
+  //   };
 
-    // ルートフォルダの全トラックをVMに変換
-    return rootModel.strips.map((track) => track.map(convertToVM));
-  });
+  //   // ルートフォルダの全トラックをVMに変換
+  //   return rootModel.strips.map((track) => track.map(convertToVM));
+  // });
 
   // ルートフォルダ名もここで公開
   public readonly timelineName = computed(() => this.model()?.name ?? 'Loading...');
