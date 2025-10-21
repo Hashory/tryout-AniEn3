@@ -8,6 +8,7 @@ import { Strip, Folder } from './anien-timeline.types';
 export interface StripVM extends Strip {
   isSelected: boolean;
   trackOrder: number;
+  isParentFolderVisible: boolean;
 }
 
 export interface FolderVM extends Omit<Folder, 'strips'> {
@@ -15,6 +16,8 @@ export interface FolderVM extends Omit<Folder, 'strips'> {
   isExpanded: boolean;
   trackOrder: number;
   trackLength: number;
+  isParentFolderVisible: boolean;
+  containedIds: string[];
 }
 
 type TimelineItemVM = StripVM | FolderVM;
@@ -51,6 +54,7 @@ export class TimelineStateService {
       startFrame: 0,
       length: 150,
       isSelected: false,
+      isParentFolderVisible: true,
       trackOrder: 0,
     },
     {
@@ -60,6 +64,7 @@ export class TimelineStateService {
       startFrame: 20,
       length: 150,
       isSelected: false,
+      isParentFolderVisible: true,
       trackOrder: 2,
     },
     {
@@ -70,8 +75,10 @@ export class TimelineStateService {
       length: 200,
       isSelected: false,
       isExpanded: true,
+      isParentFolderVisible: true,
       trackOrder: 1,
       trackLength: 2,
+      containedIds: ['strip-2'],
     },
     {
       type: 'folder',
@@ -82,7 +89,9 @@ export class TimelineStateService {
       isSelected: false,
       isExpanded: false,
       trackOrder: 5,
+      isParentFolderVisible: true,
       trackLength: 2,
+      containedIds: [],
     },
   ]);
 
@@ -174,13 +183,59 @@ export class TimelineStateService {
       return updated;
     });
 
-    this.rootTracksVM.update((tracks) =>
-      tracks.map((track) =>
-        track.type === 'folder' && track.id === id
-          ? { ...track, isExpanded: nextExpandedState }
-          : track,
-      ),
-    );
+    this.rootTracksVM.update((tracks) => {
+      const trackById = new Map<string, TimelineItemVM>();
+      for (const track of tracks) {
+        trackById.set(track.id, track);
+      }
+
+      const targetFolder = trackById.get(id);
+      if (!targetFolder || targetFolder.type !== 'folder') {
+        return tracks;
+      }
+
+      trackById.set(id, { ...targetFolder, isExpanded: nextExpandedState });
+
+      const visited = new Set<string>();
+      const updateChildVisibility = (childIds: string[], parentVisible: boolean): void => {
+        for (const childId of childIds) {
+          if (visited.has(childId)) {
+            continue;
+          }
+          visited.add(childId);
+
+          const child = trackById.get(childId);
+          if (!child) {
+            continue;
+          }
+
+          if (child.type === 'folder') {
+            const updatedChild: FolderVM = {
+              ...child,
+              isParentFolderVisible: parentVisible,
+            };
+            trackById.set(childId, updatedChild);
+            if (updatedChild.containedIds.length > 0) {
+              // Propagate visibility to nested descendants respecting each folder's own expansion state.
+              updateChildVisibility(
+                updatedChild.containedIds,
+                parentVisible && updatedChild.isExpanded,
+              );
+            }
+            continue;
+          }
+
+          trackById.set(childId, {
+            ...child,
+            isParentFolderVisible: parentVisible,
+          });
+        }
+      };
+
+      updateChildVisibility(targetFolder.containedIds, nextExpandedState);
+
+      return tracks.map((track) => trackById.get(track.id) ?? track);
+    });
   }
 
   // Model操作の委譲
