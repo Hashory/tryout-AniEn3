@@ -22,6 +22,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
           @if (track.type === 'strip') {
             <div
               class="strip"
+              [style.display]="track.isParentFolderVisible ? 'block' : 'none'"
               [style.width]="'calc(var(--timeline-frame-size) * ' + track.length + ')'"
               [style.top]="
                 'calc(' +
@@ -57,7 +58,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
               </div>
               <div
                 class="folder-content-holder"
-                [style.display]="track.isExpanded ? 'block' : 'none'"
+                [style.display]="track.isExpanded && track.isParentFolderVisible ? 'block' : 'none'"
                 [style.height]="
                   'calc(' +
                   track.trackLength +
