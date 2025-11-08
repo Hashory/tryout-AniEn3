@@ -1,4 +1,4 @@
-import { Injectable, signal, untracked, computed, Signal } from '@angular/core';
+import { Injectable } from '@angular/core';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import {
@@ -16,8 +16,10 @@ type TimelineItem = Strip | Folder;
 
 interface TimelineUpdateMessage {
   type: 'timeline-update';
-  data: TimelineItem | null;
+  data: Folder | null;
 }
+
+const DEMO_SEED_VERSION = 2;
 
 @Injectable({
   providedIn: 'root',
@@ -30,32 +32,8 @@ export class YjsTimelineService {
   /** The Y.js data structure representing the root folder. */
   private readonly yRootFolder: YFolder;
 
-  /**
-   * Private signal holding the immutable snapshot of the entire timeline state.
-   * This is updated only when Y.js data changes.
-   */
-  private readonly rawTimeline = signal<Folder | null>(null);
-
-  /**
-   * Public read-only signal exposing the raw timeline snapshot.
-   * This is the "Model" that the ViewModel layer will consume.
-   */
-  public readonly timelineSnapshot: Signal<Folder | null> = this.rawTimeline.asReadonly();
-
-  /**
-   * Public computed signal exposing the tracks of the root folder.
-   * Components can consume this to render the top-level tracks.
-   */
-  public readonly rootTracks: Signal<TimelineItem[][]> = computed(() => {
-    return this.rawTimeline()?.strips ?? [];
-  });
-
-  /**
-   * Public computed signal for the timeline's name.
-   */
-  public readonly timelineName: Signal<string> = computed(() => {
-    return this.rawTimeline()?.name ?? '';
-  });
+  private latestSnapshot: Folder | null = null;
+  private readonly timelineSubscribers = new Set<(snapshot: Folder | null) => void>();
 
   constructor() {
     this.doc = new Y.Doc();
@@ -67,18 +45,12 @@ export class YjsTimelineService {
 
     // Listen for any deep changes within the root folder structure
     this.yRootFolder.observeDeep(() => {
-      // On any change, re-generate the entire JS snapshot from Y.js data
       const newTimelineData = this.convertYToJs(this.yRootFolder);
-
-      // Update the signal with the new snapshot
-      untracked(() => {
-        if (newTimelineData?.type === 'folder') {
-          this.rawTimeline.set(newTimelineData);
-        } else {
-          // This might happen if data is corrupted or during initialization
-          this.rawTimeline.set(null);
-        }
-      });
+      if (newTimelineData?.type === 'folder') {
+        this.publishSnapshot(newTimelineData);
+      } else {
+        this.publishSnapshot(null);
+      }
     });
 
     // Wait for the provider to be synced before initializing
@@ -86,23 +58,26 @@ export class YjsTimelineService {
       // Check if the timeline is empty *after* syncing with IndexedDB
       if (this.yRootFolder.size === 0) {
         this.initializeEmptyTimeline();
+      } else {
+        this.ensureDemoSeed();
       }
 
       // Manually trigger the first snapshot conversion after sync
       // (The observeDeep might not fire if data was loaded silently)
       const initialData = this.convertYToJs(this.yRootFolder);
       if (initialData?.type === 'folder') {
-        this.rawTimeline.set(initialData);
+        this.publishSnapshot(initialData);
+      } else {
+        this.publishSnapshot(null);
       }
     });
 
     // Broadcast changes to other tabs/windows
     this.doc.on('update', () => {
       // Broadcast the updated timeline state to all clients
-      const updatedTimeline = this.rawTimeline();
       const message: TimelineUpdateMessage = {
         type: 'timeline-update',
-        data: updatedTimeline,
+        data: this.latestSnapshot,
       };
       this.broadcastChannel.postMessage(message);
     });
@@ -113,14 +88,19 @@ export class YjsTimelineService {
       if (message.type === 'timeline-update') {
         const incomingData = message.data;
         if (incomingData?.type === 'folder') {
-          // Update the local Y.js document to reflect the incoming changes
-          // This is a simplified approach; in a real app, you'd want to
-          // apply only the necessary changes rather than overwriting.
-          untracked(() => {
-            this.rawTimeline.set(incomingData);
-          });
+          this.publishSnapshot(incomingData);
+        } else {
+          this.publishSnapshot(null);
         }
       }
+    };
+  }
+
+  public subscribeTimeline(listener: (snapshot: Folder | null) => void): () => void {
+    this.timelineSubscribers.add(listener);
+    listener(this.latestSnapshot);
+    return () => {
+      this.timelineSubscribers.delete(listener);
     };
   }
 
@@ -194,16 +174,99 @@ export class YjsTimelineService {
    * Sets up the initial empty structure for the root folder in Y.js.
    */
   private initializeEmptyTimeline(): void {
+    this.seedDemoTimeline();
+  }
+
+  private ensureDemoSeed(): void {
+    const recordedSeedVersion = this.yRootFolder.get('demoSeedVersion') as number | undefined;
+    if (typeof recordedSeedVersion === 'number' && recordedSeedVersion >= DEMO_SEED_VERSION) {
+      return;
+    }
+    const rootName = this.yRootFolder.get('name');
+    const strips = this.yRootFolder.get('strips') as YTrackList | undefined;
+    const trackCount = strips?.length ?? 0;
+    if (rootName !== 'Root Timeline' || trackCount > 1) {
+      return;
+    }
+    this.seedDemoTimeline();
+  }
+
+  private seedDemoTimeline(): void {
     this.doc.transact(() => {
-      this.yRootFolder.set('id', crypto.randomUUID());
+      const existingId = this.yRootFolder.get('id');
+      this.yRootFolder.set('id', existingId ?? crypto.randomUUID());
       this.yRootFolder.set('type', 'folder');
       this.yRootFolder.set('name', 'Root Timeline');
       this.yRootFolder.set('startFrame', 0);
-      this.yRootFolder.set('length', 240); // Default length
+      this.yRootFolder.set('length', 240);
       this.yRootFolder.set('root', true);
-      // Initialize with an empty list of tracks
+
       const trackList: YTrackList = new Y.Array<YTrack>();
+
+      const introTrack: YTrack = new Y.Array<YTimelineEntry>();
+      const introStrip = new Y.Map<YStripFields>() as YStrip;
+      introStrip.set('id', crypto.randomUUID());
+      introStrip.set('type', 'strip');
+      introStrip.set('source', 'Intro Clip');
+      introStrip.set('startFrame', 0);
+      introStrip.set('length', 120);
+      introTrack.push([introStrip]);
+
+      const montageTrack: YTrack = new Y.Array<YTimelineEntry>();
+      const montageStrip = new Y.Map<YStripFields>() as YStrip;
+      montageStrip.set('id', crypto.randomUUID());
+      montageStrip.set('type', 'strip');
+      montageStrip.set('source', 'Montage Sequence');
+      montageStrip.set('startFrame', 60);
+      montageStrip.set('length', 180);
+      montageTrack.push([montageStrip]);
+
+      const nestedFolderTrack: YTrack = new Y.Array<YTimelineEntry>();
+      const nestedFolder = new Y.Map() as YFolder;
+      nestedFolder.set('id', crypto.randomUUID());
+      nestedFolder.set('type', 'folder');
+      nestedFolder.set('name', 'B-Roll Folder');
+      nestedFolder.set('startFrame', 180);
+      nestedFolder.set('length', 220);
+      nestedFolder.set('root', false);
+
+      const nestedFolderTracks: YTrackList = new Y.Array<YTrack>();
+      const bRollTrack: YTrack = new Y.Array<YTimelineEntry>();
+      const bRollStrip = new Y.Map<YStripFields>() as YStrip;
+      bRollStrip.set('id', crypto.randomUUID());
+      bRollStrip.set('type', 'strip');
+      bRollStrip.set('source', 'B-Roll Shot 1');
+      bRollStrip.set('startFrame', 0);
+      bRollStrip.set('length', 80);
+      bRollTrack.push([bRollStrip]);
+
+      const bRollStripAlt = new Y.Map<YStripFields>() as YStrip;
+      bRollStripAlt.set('id', crypto.randomUUID());
+      bRollStripAlt.set('type', 'strip');
+      bRollStripAlt.set('source', 'B-Roll Shot 2');
+      bRollStripAlt.set('startFrame', 90);
+      bRollStripAlt.set('length', 60);
+      bRollTrack.push([bRollStripAlt]);
+
+      const cutawayTrack: YTrack = new Y.Array<YTimelineEntry>();
+      const cutawayStrip = new Y.Map<YStripFields>() as YStrip;
+      cutawayStrip.set('id', crypto.randomUUID());
+      cutawayStrip.set('type', 'strip');
+      cutawayStrip.set('source', 'Cutaway Clip');
+      cutawayStrip.set('startFrame', 30);
+      cutawayStrip.set('length', 50);
+      cutawayTrack.push([cutawayStrip]);
+
+      nestedFolderTracks.push([bRollTrack]);
+      nestedFolderTracks.push([cutawayTrack]);
+      nestedFolder.set('strips', nestedFolderTracks);
+
+      nestedFolderTrack.push([nestedFolder]);
+
+      trackList.push([introTrack, montageTrack, nestedFolderTrack]);
+
       this.yRootFolder.set('strips', trackList);
+      this.yRootFolder.set('demoSeedVersion', DEMO_SEED_VERSION);
     });
   }
 
@@ -315,5 +378,12 @@ export class YjsTimelineService {
 
   private isYFolder(value: YTimelineEntry | undefined): value is YFolder {
     return value?.get('type') === 'folder';
+  }
+
+  private publishSnapshot(snapshot: Folder | null): void {
+    this.latestSnapshot = snapshot;
+    for (const listener of this.timelineSubscribers) {
+      listener(snapshot);
+    }
   }
 }
