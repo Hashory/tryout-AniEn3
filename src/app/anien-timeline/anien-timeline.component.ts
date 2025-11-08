@@ -18,7 +18,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         [style.width]="'calc(var(--timeline-frame-size) * 1000)'"
         [style.height]="'calc(var(--timeline-track-height) * ' + 100 + ')'"
       >
-        @for (track of tracks(); track track; let i = $index) {
+        @for (track of tracks(); track track.id; let i = $index) {
           @if (track.type === 'strip') {
             <div
               class="strip"

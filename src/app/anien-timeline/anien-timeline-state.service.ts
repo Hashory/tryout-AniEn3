@@ -1,9 +1,11 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, Signal, DestroyRef } from '@angular/core';
 import { YjsTimelineService } from './anien-timeline-store.service';
 import { Strip, Folder } from './anien-timeline.types';
 
 // --- ViewModelの型定義 ---
 // View（コンポーネント）が使いやすいように、Modelの型にUI状態を追加します。
+
+// TODO: Write a test for the ViewModel
 
 export interface StripVM extends Strip {
   isSelected: boolean;
@@ -21,7 +23,11 @@ export interface FolderVM extends Omit<Folder, 'strips'> {
 }
 
 type TimelineItemVM = StripVM | FolderVM;
-type TrackVM = TimelineItemVM[];
+
+interface MapContext {
+  readonly selectedIds: ReadonlySet<string>;
+  readonly expandedIds: ReadonlySet<string>;
+}
 
 @Injectable({
   providedIn: 'root',
@@ -29,9 +35,10 @@ type TrackVM = TimelineItemVM[];
 export class TimelineStateService {
   // Inject model service
   private readonly yjsService = inject(YjsTimelineService);
+  private readonly destroyRef = inject(DestroyRef);
 
-  // Subscribe to model changes
-  private readonly model = this.yjsService.timelineSnapshot;
+  // Subscribe to model changes (plain JS snapshot provided by the Yjs store)
+  private readonly model = signal<Folder | null>(null);
 
   // UI State Signals
   private readonly _currentFrame = signal<number>(0);
@@ -46,54 +53,51 @@ export class TimelineStateService {
 
   // --- 5. ViewModel (加工済みデータ) を computed で作成・公開 ---
 
-  public readonly rootTracksVM = signal<TrackVM>([
-    {
-      type: 'strip',
-      id: 'strip-1',
-      source: 'Video Clip 1',
-      startFrame: 0,
-      length: 150,
-      isSelected: false,
-      isParentFolderVisible: true,
-      trackOrder: 0,
-    },
-    {
-      type: 'strip',
-      id: 'strip-2',
-      source: 'Video Clip 2',
-      startFrame: 20,
-      length: 150,
-      isSelected: false,
-      isParentFolderVisible: true,
-      trackOrder: 2,
-    },
-    {
-      type: 'folder',
-      id: 'folder-1',
-      name: 'Folder 1',
-      startFrame: 20,
-      length: 200,
-      isSelected: false,
-      isExpanded: true,
-      isParentFolderVisible: true,
-      trackOrder: 1,
-      trackLength: 2,
-      containedIds: ['strip-2'],
-    },
-    {
-      type: 'folder',
-      id: 'folder-2',
-      name: 'Folder 2',
-      startFrame: 20,
-      length: 200,
-      isSelected: false,
-      isExpanded: false,
-      trackOrder: 5,
-      isParentFolderVisible: true,
-      trackLength: 2,
-      containedIds: [],
-    },
-  ]);
+  public readonly rootTracksVM: Signal<TimelineItemVM[]> = computed(() => {
+    const rootModel = this.model();
+    if (!rootModel) {
+      return [];
+    }
+
+    const context: MapContext = {
+      selectedIds: this._selectedItemIds(),
+      expandedIds: this._expandedFolderIds(),
+    };
+
+    const flattened: TimelineItemVM[] = [];
+    let nextTrackOrder = 0;
+
+    const processTrack = (trackItems: (Strip | Folder)[], parentVisible: boolean): void => {
+      const currentTrackOrder = nextTrackOrder++;
+
+      for (const item of trackItems) {
+        if (item.type === 'strip') {
+          flattened.push(
+            this.mapStrip(item, currentTrackOrder, parentVisible, context.selectedIds),
+          );
+          continue;
+        }
+
+        const folderVM = this.mapFolder(item, currentTrackOrder, parentVisible, context);
+        flattened.push(folderVM);
+
+        if (!folderVM.isExpanded) {
+          continue;
+        }
+
+        const childVisibility = parentVisible && folderVM.isExpanded;
+        for (const nestedTrack of item.strips) {
+          processTrack(nestedTrack, childVisibility);
+        }
+      }
+    };
+
+    for (const track of rootModel.strips) {
+      processTrack(track, true);
+    }
+
+    return flattened;
+  });
 
   /**
    * Model(生データ) と UI状態(選択状態など) をマージして、
@@ -169,72 +173,14 @@ export class TimelineStateService {
   }
 
   public toggleFolderExpansion(id: string): void {
-    let nextExpandedState = false;
-
     this._expandedFolderIds.update((currentSet) => {
       const updated = new Set(currentSet);
       if (updated.has(id)) {
         updated.delete(id);
-        nextExpandedState = false;
       } else {
         updated.add(id);
-        nextExpandedState = true;
       }
       return updated;
-    });
-
-    this.rootTracksVM.update((tracks) => {
-      const trackById = new Map<string, TimelineItemVM>();
-      for (const track of tracks) {
-        trackById.set(track.id, track);
-      }
-
-      const targetFolder = trackById.get(id);
-      if (!targetFolder || targetFolder.type !== 'folder') {
-        return tracks;
-      }
-
-      trackById.set(id, { ...targetFolder, isExpanded: nextExpandedState });
-
-      const visited = new Set<string>();
-      const updateChildVisibility = (childIds: string[], parentVisible: boolean): void => {
-        for (const childId of childIds) {
-          if (visited.has(childId)) {
-            continue;
-          }
-          visited.add(childId);
-
-          const child = trackById.get(childId);
-          if (!child) {
-            continue;
-          }
-
-          if (child.type === 'folder') {
-            const updatedChild: FolderVM = {
-              ...child,
-              isParentFolderVisible: parentVisible,
-            };
-            trackById.set(childId, updatedChild);
-            if (updatedChild.containedIds.length > 0) {
-              // Propagate visibility to nested descendants respecting each folder's own expansion state.
-              updateChildVisibility(
-                updatedChild.containedIds,
-                parentVisible && updatedChild.isExpanded,
-              );
-            }
-            continue;
-          }
-
-          trackById.set(childId, {
-            ...child,
-            isParentFolderVisible: parentVisible,
-          });
-        }
-      };
-
-      updateChildVisibility(targetFolder.containedIds, nextExpandedState);
-
-      return tracks.map((track) => trackById.get(track.id) ?? track);
     });
   }
 
@@ -253,5 +199,64 @@ export class TimelineStateService {
 
     // 削除したら選択を解除
     this.clearSelection();
+  }
+
+  constructor() {
+    const unsubscribe = this.yjsService.subscribeTimeline((snapshot) => {
+      this.model.set(snapshot);
+    });
+
+    this.destroyRef.onDestroy(unsubscribe);
+  }
+
+  private mapStrip(
+    strip: Strip,
+    trackOrder: number,
+    isParentFolderVisible: boolean,
+    selectedIds: ReadonlySet<string>,
+  ): StripVM {
+    return {
+      ...strip,
+      isSelected: selectedIds.has(strip.id),
+      trackOrder,
+      isParentFolderVisible,
+    };
+  }
+
+  private mapFolder(
+    folder: Folder,
+    trackOrder: number,
+    isParentFolderVisible: boolean,
+    context: MapContext,
+  ): FolderVM {
+    const { selectedIds, expandedIds } = context;
+    const isRootFolder = folder.root === true;
+    const isExpanded = isRootFolder || expandedIds.has(folder.id);
+    const { strips, ...rest } = folder;
+
+    return {
+      ...rest,
+      isSelected: selectedIds.has(folder.id),
+      isExpanded,
+      trackOrder,
+      trackLength: strips.length,
+      isParentFolderVisible,
+      containedIds: this.collectContainedIds(strips),
+    };
+  }
+
+  private collectContainedIds(tracks: Folder['strips']): string[] {
+    const collected: string[] = [];
+
+    for (const track of tracks) {
+      for (const item of track) {
+        collected.push(item.id);
+        if (item.type === 'folder') {
+          collected.push(...this.collectContainedIds(item.strips));
+        }
+      }
+    }
+
+    return collected;
   }
 }
