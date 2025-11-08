@@ -18,50 +18,50 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         [style.width]="'calc(var(--timeline-frame-size) * 1000)'"
         [style.height]="'calc(var(--timeline-track-height) * ' + 100 + ')'"
       >
-        @for (track of tracks(); track track.id; let i = $index) {
-          @if (track.type === 'strip') {
+        @for (item of timelineItems(); track item.id; let i = $index) {
+          @if (item.type === 'strip') {
             <div
               class="strip"
-              [style.display]="track.isParentFolderVisible ? 'block' : 'none'"
-              [style.width]="'calc(var(--timeline-frame-size) * ' + track.length + ')'"
+              [style.display]="item.isParentFolderVisible ? 'block' : 'none'"
+              [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
               [style.top]="
                 'calc(' +
-                track.trackOrder +
+                item.trackOrder +
                 ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + track.startFrame + ')'"
+              [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
             >
-              {{ track.source }}
+              {{ item.source }}
             </div>
           } @else {
             <div
               class="folder"
-              [style.width]="'calc(var(--timeline-frame-size) * ' + track.length + ')'"
+              [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
               [style.top]="
                 'calc(' +
-                track.trackOrder +
+                item.trackOrder +
                 ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + track.startFrame + ')'"
+              [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
             >
-              <div class="folder-header" [class.expanded]="track.isExpanded">
-                <button type="button" (click)="toggleFolder(track.id)">
+              <div class="folder-header" [class.expanded]="item.isExpanded">
+                <button type="button" (click)="toggleFolder(item.id)">
                   <ng-icon
                     name="heroChevronRightMicro"
-                    [style.rotate]="track.isExpanded ? '90deg' : '0deg'"
+                    [style.rotate]="item.isExpanded ? '90deg' : '0deg'"
                   />
                 </button>
-                <div>{{ track.name }}</div>
+                <div>{{ item.name }}</div>
                 <button>
                   <ng-icon name="heroChevronUpDownMicro" [style.rotate]="'90deg'" />
                 </button>
               </div>
               <div
                 class="folder-content-holder"
-                [style.display]="track.isExpanded && track.isParentFolderVisible ? 'block' : 'none'"
+                [style.display]="item.isExpanded && item.isParentFolderVisible ? 'block' : 'none'"
                 [style.height]="
                   'calc(' +
-                  track.trackLength +
+                  item.trackLength +
                   ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
                 "
               ></div>
@@ -209,7 +209,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
 export class AnienTimelineComponent {
   private readonly stateService = inject(TimelineStateService);
 
-  public readonly tracks = this.stateService.rootTracksVM;
+  public readonly timelineItems = this.stateService.timelineItems;
   public readonly timelineName = this.stateService.timelineName;
 
   public addTrack(): void {
@@ -222,7 +222,7 @@ export class AnienTimelineComponent {
 
   // Helper for testing
   public addTestStrip(): void {
-    if (this.tracks().length === 0) {
+    if (this.timelineItems().length === 0) {
       this.stateService.addTrack();
     }
     this.stateService.addTrack();
