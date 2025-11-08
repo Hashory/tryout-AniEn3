@@ -2,10 +2,7 @@ import { Injectable, signal, computed, inject, Signal, DestroyRef } from '@angul
 import { YjsTimelineService } from './anien-timeline-store.service';
 import { Strip, Folder } from './anien-timeline.types';
 
-// --- ViewModelの型定義 ---
-// View（コンポーネント）が使いやすいように、Modelの型にUI状態を追加します。
-
-// TODO: Write a test for the ViewModel
+// ViewModel types augment the domain model with UI-specific state.
 
 export interface StripVM extends Strip {
   isSelected: boolean;
@@ -51,7 +48,7 @@ export class TimelineStateService {
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
 
-  // --- 5. ViewModel (加工済みデータ) を computed で作成・公開 ---
+  // Derived timeline items exposed to consuming components.
 
   public readonly timelineItems: Signal<TimelineItemVM[]> = computed(() => {
     const rootModel = this.model();
@@ -67,16 +64,36 @@ export class TimelineStateService {
     const items: TimelineItemVM[] = [];
     let nextTrackOrder = 0;
 
-    const processTrack = (trackItems: (Strip | Folder)[], parentVisible: boolean): void => {
+    const processTrack = (
+      trackItems: (Strip | Folder)[],
+      parentVisible: boolean,
+      frameOffset: number,
+    ): void => {
       const currentTrackOrder = nextTrackOrder++;
 
       for (const item of trackItems) {
         if (item.type === 'strip') {
-          items.push(this.mapStrip(item, currentTrackOrder, parentVisible, context.selectedIds));
+          const absoluteStartFrame = item.startFrame + frameOffset;
+          items.push(
+            this.mapStrip(
+              item,
+              currentTrackOrder,
+              parentVisible,
+              context.selectedIds,
+              absoluteStartFrame,
+            ),
+          );
           continue;
         }
 
-        const folderVM = this.mapFolder(item, currentTrackOrder, parentVisible, context);
+        const absoluteStartFrame = item.startFrame + frameOffset;
+        const folderVM = this.mapFolder(
+          item,
+          currentTrackOrder,
+          parentVisible,
+          context,
+          absoluteStartFrame,
+        );
         items.push(folderVM);
 
         if (!folderVM.isExpanded) {
@@ -85,73 +102,22 @@ export class TimelineStateService {
 
         const childVisibility = parentVisible && folderVM.isExpanded;
         for (const nestedTrack of item.strips) {
-          processTrack(nestedTrack, childVisibility);
+          processTrack(nestedTrack, childVisibility, absoluteStartFrame);
         }
       }
     };
 
     for (const track of rootModel.strips) {
-      processTrack(track, true);
+      processTrack(track, true, rootModel.startFrame);
     }
 
     return items;
   });
 
-  /**
-   * Model(生データ) と UI状態(選択状態など) をマージして、
-   * Viewが消費するためのViewModelを生成する Signal。
-   * * これが「作るのが大変になります」という問題を解決します。
-   */
-  // public readonly timelineItemsLegacy: Signal<TrackVM[]> = computed(() => {
-  //   const rootModel = this.model();
-  //   if (!rootModel) {
-  //     return []; // Modelがロード中なら空を返す
-  //   }
-
-  //   // UI状態を取得
-  //   const selectedIds = this._selectedItemIds();
-  //   const expandedIds = this._expandedFolderIds();
-
-  //   // Modelの 'strips' を再帰的に 'stripsVM' に変換する
-  //   const convertToVM = (item: Strip | Folder): StripVM | FolderVM => {
-  //     const isSelected = selectedIds.has(item.id);
-
-  //     if (item.type === 'strip') {
-  //       const stripVM: StripVM = { ...item, isSelected };
-  //       return stripVM;
-  //     }
-
-  //     if (item.type === 'folder') {
-  //       const isExpanded = expandedIds.has(item.id);
-
-  //       // フォルダ内のトラックも再帰的に変換
-  //       const nestedTracksVM = item.strips.map(
-  //         (track) => track.map(convertToVM), // ★再帰呼び出し
-  //       );
-
-  //       const folderVM: FolderVM = {
-  //         ...item,
-  //         isSelected,
-  //         isExpanded,
-  //         strips: nestedTracksVM,
-  //       };
-  //       return folderVM;
-  //     }
-
-  //     // 型エラーを防ぐ (起こらないはず)
-  //     throw new Error('Unknown item type');
-  //   };
-
-  //   // ルートフォルダの全トラックをVMに変換
-  //   return rootModel.strips.map((track) => track.map(convertToVM));
-  // });
-
-  // ルートフォルダ名もここで公開
+  // Expose the root folder name via a read-only signal.
   public readonly timelineName = computed(() => this.model()?.name ?? 'Loading...');
 
-  // --- 6. Viewからの操作 (Intent) ---
-
-  // UI状態の更新
+  // View intents update local UI state and delegate to the store as needed.
   public setFrame(frame: number): void {
     this._currentFrame.set(frame);
   }
@@ -162,7 +128,7 @@ export class TimelineStateService {
         currentSet.add(id);
         return new Set(currentSet);
       }
-      return new Set([id]); // 単一選択
+      return new Set([id]);
     });
   }
 
@@ -182,20 +148,12 @@ export class TimelineStateService {
     });
   }
 
-  // Model操作の委譲
   public addTrack(): void {
     this.yjsService.addTrack();
   }
 
   public deleteSelectedItem(): void {
-    // 複雑なロジックの例:
-    // 選択中のIDを取得し、YjsServiceのdeleteItem...を呼ぶ
-    // (このロジックはここにカプセル化される)
-    // const selectedIds = this._selectedItemIds();
-    // ... (削除ロジック) ...
-    // this.yjsService.deleteItemFromTrack(trackIndex, id);
-
-    // 削除したら選択を解除
+    // Future deletion logic will determine the track scope and remove the item before clearing.
     this.clearSelection();
   }
 
@@ -212,12 +170,14 @@ export class TimelineStateService {
     trackOrder: number,
     isParentFolderVisible: boolean,
     selectedIds: ReadonlySet<string>,
+    absoluteStartFrame: number,
   ): StripVM {
     return {
       ...strip,
       isSelected: selectedIds.has(strip.id),
       trackOrder,
       isParentFolderVisible,
+      startFrame: absoluteStartFrame,
     };
   }
 
@@ -226,6 +186,7 @@ export class TimelineStateService {
     trackOrder: number,
     isParentFolderVisible: boolean,
     context: MapContext,
+    absoluteStartFrame: number,
   ): FolderVM {
     const { selectedIds, expandedIds } = context;
     const isRootFolder = folder.root === true;
@@ -240,6 +201,7 @@ export class TimelineStateService {
       trackLength: strips.length,
       isParentFolderVisible,
       containedIds: this.collectContainedIds(strips),
+      startFrame: absoluteStartFrame,
     };
   }
 
