@@ -53,7 +53,7 @@ export class TimelineStateService {
 
   // --- 5. ViewModel (加工済みデータ) を computed で作成・公開 ---
 
-  public readonly rootTracksVM: Signal<TimelineItemVM[]> = computed(() => {
+  public readonly timelineItems: Signal<TimelineItemVM[]> = computed(() => {
     const rootModel = this.model();
     if (!rootModel) {
       return [];
@@ -64,7 +64,7 @@ export class TimelineStateService {
       expandedIds: this._expandedFolderIds(),
     };
 
-    const flattened: TimelineItemVM[] = [];
+    const items: TimelineItemVM[] = [];
     let nextTrackOrder = 0;
 
     const processTrack = (trackItems: (Strip | Folder)[], parentVisible: boolean): void => {
@@ -72,14 +72,12 @@ export class TimelineStateService {
 
       for (const item of trackItems) {
         if (item.type === 'strip') {
-          flattened.push(
-            this.mapStrip(item, currentTrackOrder, parentVisible, context.selectedIds),
-          );
+          items.push(this.mapStrip(item, currentTrackOrder, parentVisible, context.selectedIds));
           continue;
         }
 
         const folderVM = this.mapFolder(item, currentTrackOrder, parentVisible, context);
-        flattened.push(folderVM);
+        items.push(folderVM);
 
         if (!folderVM.isExpanded) {
           continue;
@@ -96,7 +94,7 @@ export class TimelineStateService {
       processTrack(track, true);
     }
 
-    return flattened;
+    return items;
   });
 
   /**
@@ -104,7 +102,7 @@ export class TimelineStateService {
    * Viewが消費するためのViewModelを生成する Signal。
    * * これが「作るのが大変になります」という問題を解決します。
    */
-  // public readonly rootTracksVM: Signal<TrackVM[]> = computed(() => {
+  // public readonly timelineItemsLegacy: Signal<TrackVM[]> = computed(() => {
   //   const rootModel = this.model();
   //   if (!rootModel) {
   //     return []; // Modelがロード中なら空を返す
