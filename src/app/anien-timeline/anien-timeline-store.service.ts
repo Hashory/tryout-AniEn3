@@ -21,6 +21,54 @@ interface TimelineUpdateMessage {
 
 const DEMO_SEED_VERSION = 2;
 
+export interface StripCreationInput {
+  id?: string;
+  source: string;
+  startFrame: number;
+  length: number;
+}
+
+export interface FolderCreationInput {
+  id?: string;
+  name: string;
+  startFrame: number;
+  length: number;
+  root?: boolean;
+  trackCount?: number;
+}
+
+export type StripUpdateInput = Partial<Omit<Strip, 'id' | 'type'>>;
+
+export type FolderUpdateInput = Partial<Omit<Folder, 'id' | 'type' | 'strips'>>;
+
+export interface MoveTargetInput {
+  parentFolderId?: string;
+  trackIndex: number;
+  position?: number;
+}
+
+export interface DeleteItemOptions {
+  parentFolderId?: string;
+  expectedTrackIndex?: number;
+}
+
+export interface ItemLocationDetails {
+  parentFolderId: string | null;
+  trackIndex: number;
+  entryIndex: number;
+  trackLength: number;
+  totalTracks: number;
+}
+
+interface ItemLocation {
+  parentFolder: YFolder;
+  parentTrackList: YTrackList;
+  track: YTrack;
+  trackIndex: number;
+  entryIndex: number;
+  item: YTimelineEntry;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -273,104 +321,474 @@ export class YjsTimelineService {
   // --- Model (Y.js) Manipulation Methods ---
 
   /**
-   * Adds a new, empty track to the root folder.
+   * Returns the latest timeline snapshot that was broadcast to subscribers.
    */
-  public addTrack(): void {
-    this.doc.transact(() => {
-      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
-
-      if (!yTracks) {
-        console.error('Root tracks collection not initialized.');
-        return;
-      }
-      // A new track is an empty Y.Array
-      const newTrack: YTrack = new Y.Array<YTimelineEntry>();
-      yTracks.push([newTrack]);
-    });
+  public getSnapshot(): Folder | null {
+    return this.latestSnapshot;
   }
 
   /**
-   * Adds a new strip to a specific track in the root folder.
-   * @param trackIndex The index of the track to add to.
-   * @param stripData Basic data for the new strip.
+   * Looks up a timeline item by ID and returns a plain JS clone if it exists.
+   */
+  public getItemById(itemId: string): TimelineItem | null {
+    const location = this.findItemLocationById(itemId);
+    if (!location) {
+      return null;
+    }
+    return this.convertYToJs(location.item);
+  }
+
+  /**
+   * Returns positional metadata for a timeline item, useful for UI placement logic.
+   */
+  public getItemLocation(itemId: string): ItemLocationDetails | null {
+    const location = this.findItemLocationById(itemId);
+    if (!location) {
+      return null;
+    }
+
+    const parentId = (location.parentFolder.get('id') as string | undefined) ?? null;
+
+    return {
+      parentFolderId: parentId,
+      trackIndex: location.trackIndex,
+      entryIndex: location.entryIndex,
+      trackLength: location.track.length,
+      totalTracks: location.parentTrackList.length,
+    };
+  }
+
+  /**
+   * Adds a track to the specified folder (root folder when omitted).
+   * @returns The index at which the track was inserted, or null when the folder was not found.
+   */
+  public addTrack(folderId?: string, options?: { position?: number }): number | null {
+    let createdIndex: number | null = null;
+    this.doc.transact(() => {
+      const targetFolder = this.getTargetFolder(folderId);
+      if (!targetFolder) {
+        console.error(`Folder ${folderId ?? 'root'} not found while adding track.`);
+        return;
+      }
+
+      const trackList = this.ensureTrackList(targetFolder);
+      const insertIndex = this.normalizeInsertIndex(options?.position, trackList.length);
+      const newTrack: YTrack = new Y.Array<YTimelineEntry>();
+      trackList.insert(insertIndex, [newTrack]);
+      createdIndex = insertIndex;
+    });
+    return createdIndex;
+  }
+
+  /**
+   * Adds a strip to a track, optionally under a nested folder.
+   * @returns The created strip ID or null when the target track does not exist.
    */
   public addStripToTrack(
     trackIndex: number,
-    stripData: {
-      source: string;
-      startFrame: number;
-      length: number;
-    },
-  ): void {
+    stripData: StripCreationInput,
+    options?: { parentFolderId?: string; position?: number },
+  ): string | null {
+    let createdId: string | null = null;
     this.doc.transact(() => {
-      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
-
-      if (!yTracks) {
-        console.error('Root tracks collection not initialized.');
+      const targetFolder = this.getTargetFolder(options?.parentFolderId);
+      if (!targetFolder) {
+        console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding strip.`);
         return;
       }
-      const targetTrack = yTracks.get(trackIndex); // This is a YTrack (Y.Array)
+
+      const trackList = this.ensureTrackList(targetFolder);
+      const targetTrack = trackList.get(trackIndex);
 
       if (!targetTrack) {
-        console.error(`Track index ${trackIndex} not found.`);
+        console.error(
+          `Track index ${trackIndex} not found in folder ${options?.parentFolderId ?? 'root'}.`,
+        );
         return;
       }
 
+      const insertIndex = this.normalizeInsertIndex(options?.position, targetTrack.length);
+      const stripId = stripData.id ?? crypto.randomUUID();
       const newYStrip = new Y.Map<YStripFields>() as YStrip;
-      newYStrip.set('id', crypto.randomUUID());
+      newYStrip.set('id', stripId);
       newYStrip.set('type', 'strip');
       newYStrip.set('source', stripData.source);
       newYStrip.set('startFrame', stripData.startFrame);
       newYStrip.set('length', stripData.length);
 
-      // Add the new Y.Map to the Y.Array representing the track
-      targetTrack.push([newYStrip]);
+      targetTrack.insert(insertIndex, [newYStrip]);
+      createdId = stripId;
     });
+    return createdId;
   }
 
   /**
-   * Deletes an item (Strip or Folder) from a track.
-   * @param trackIndex The index of the track containing the item.
-   * @param itemId The unique ID of the item to delete.
+   * Creates a nested folder inside the given track.
+   * @returns The created folder ID or null when the target could not be resolved.
    */
-  public deleteItemFromTrack(trackIndex: number, itemId: string): void {
+  public addFolderToTrack(
+    trackIndex: number,
+    folderData: FolderCreationInput,
+    options?: { parentFolderId?: string; position?: number },
+  ): string | null {
+    let createdId: string | null = null;
     this.doc.transact(() => {
-      const yTracks: YTrackList | undefined = this.yRootFolder.get('strips');
-
-      if (!yTracks) {
-        console.error('Root tracks collection not initialized.');
+      const targetFolder = this.getTargetFolder(options?.parentFolderId);
+      if (!targetFolder) {
+        console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding folder.`);
         return;
       }
-      const targetTrack = yTracks.get(trackIndex); // YTrack
+
+      const trackList = this.ensureTrackList(targetFolder);
+      const targetTrack = trackList.get(trackIndex);
 
       if (!targetTrack) {
-        console.error(`Track index ${trackIndex} not found.`);
+        console.error(
+          `Track index ${trackIndex} not found in folder ${options?.parentFolderId ?? 'root'}.`,
+        );
         return;
       }
 
-      // Find the index of the item with the matching ID
-      let itemIndex = -1;
-      for (let i = 0; i < targetTrack.length; i++) {
-        const item = targetTrack.get(i);
-        if (!item) {
-          continue;
-        }
-        if (item.get('id') === itemId) {
-          itemIndex = i;
-          break;
+      const insertIndex = this.normalizeInsertIndex(options?.position, targetTrack.length);
+      const folderId = folderData.id ?? crypto.randomUUID();
+      const newFolder = new Y.Map() as YFolder;
+      newFolder.set('id', folderId);
+      newFolder.set('type', 'folder');
+      newFolder.set('name', folderData.name);
+      newFolder.set('startFrame', folderData.startFrame);
+      newFolder.set('length', folderData.length);
+      newFolder.set('root', folderData.root ?? false);
+
+      const nestedTracks = new Y.Array<YTrack>();
+      const trackCount = folderData.trackCount ?? 0;
+      for (let i = 0; i < trackCount; i++) {
+        nestedTracks.push([new Y.Array<YTimelineEntry>()]);
+      }
+      newFolder.set('strips', nestedTracks);
+
+      targetTrack.insert(insertIndex, [newFolder]);
+      createdId = folderId;
+    });
+    return createdId;
+  }
+
+  /**
+   * Applies partial updates to an existing strip.
+   */
+  public updateStrip(itemId: string, updates: StripUpdateInput): boolean {
+    if (!updates || Object.keys(updates).length === 0) {
+      return false;
+    }
+
+    let updated = false;
+    this.doc.transact(() => {
+      const location = this.findItemLocationById(itemId);
+      if (!location) {
+        console.warn(`Strip ${itemId} was not found for update.`);
+        return;
+      }
+
+      if (!this.isYStrip(location.item)) {
+        console.error(`Item ${itemId} is not a strip.`);
+        return;
+      }
+
+      if (updates.source !== undefined) {
+        location.item.set('source', updates.source);
+        updated = true;
+      }
+      if (updates.startFrame !== undefined) {
+        location.item.set('startFrame', updates.startFrame);
+        updated = true;
+      }
+      if (updates.length !== undefined) {
+        location.item.set('length', updates.length);
+        updated = true;
+      }
+    });
+
+    return updated;
+  }
+
+  /**
+   * Applies partial updates to an existing folder (excluding its strips collection).
+   */
+  public updateFolder(itemId: string, updates: FolderUpdateInput): boolean {
+    if (!updates || Object.keys(updates).length === 0) {
+      return false;
+    }
+
+    let updated = false;
+    this.doc.transact(() => {
+      const location = this.findItemLocationById(itemId);
+      if (!location) {
+        console.warn(`Folder ${itemId} was not found for update.`);
+        return;
+      }
+
+      if (!this.isYFolder(location.item)) {
+        console.error(`Item ${itemId} is not a folder.`);
+        return;
+      }
+
+      if (updates.name !== undefined) {
+        location.item.set('name', updates.name);
+        updated = true;
+      }
+      if (updates.startFrame !== undefined) {
+        location.item.set('startFrame', updates.startFrame);
+        updated = true;
+      }
+      if (updates.length !== undefined) {
+        location.item.set('length', updates.length);
+        updated = true;
+      }
+      if (updates.root !== undefined) {
+        location.item.set('root', updates.root);
+        updated = true;
+      }
+    });
+
+    return updated;
+  }
+
+  /**
+   * Moves a strip or folder to a different track (or position within the same track).
+   */
+  public moveItem(itemId: string, target: MoveTargetInput): boolean {
+    let moved = false;
+    this.doc.transact(() => {
+      const location = this.findItemLocationById(itemId);
+      if (!location) {
+        console.warn(`Item ${itemId} was not found for move.`);
+        return;
+      }
+
+      const destinationFolder = this.getTargetFolder(target.parentFolderId);
+      if (!destinationFolder) {
+        console.error(`Folder ${target.parentFolderId ?? 'root'} not found while moving item.`);
+        return;
+      }
+
+      const destinationTrackList = this.ensureTrackList(destinationFolder);
+      const destinationTrack = destinationTrackList.get(target.trackIndex);
+      if (!destinationTrack) {
+        console.error(
+          `Track index ${target.trackIndex} not found in folder ${target.parentFolderId ?? 'root'}.`,
+        );
+        return;
+      }
+
+      const initialLength = destinationTrack.length;
+      const desiredIndex = this.normalizeInsertIndex(target.position, initialLength);
+      const isSameTrack = destinationTrack === location.track;
+      const item = location.item;
+
+      location.track.delete(location.entryIndex, 1);
+
+      const refreshedDestinationTrack = destinationTrackList.get(target.trackIndex);
+      if (!refreshedDestinationTrack) {
+        console.error('Destination track became unavailable after removal.');
+        return;
+      }
+
+      let insertIndex = desiredIndex;
+      if (isSameTrack && insertIndex > location.entryIndex) {
+        insertIndex -= 1;
+      }
+      insertIndex = this.clampInsertIndex(insertIndex, refreshedDestinationTrack.length);
+
+      refreshedDestinationTrack.insert(insertIndex, [item]);
+      moved = true;
+    });
+
+    return moved;
+  }
+
+  /**
+   * Removes an item by ID regardless of its parent folder/track.
+   */
+  public deleteItem(itemId: string, options?: DeleteItemOptions): boolean {
+    let deleted = false;
+    this.doc.transact(() => {
+      const location = this.findItemLocationById(itemId);
+      if (!location) {
+        console.warn(`Item ${itemId} was not found for deletion.`);
+        return;
+      }
+
+      if (options?.parentFolderId) {
+        const parentId = location.parentFolder.get('id');
+        if (parentId !== options.parentFolderId) {
+          console.warn(
+            `Item ${itemId} was found in a different folder (${parentId ?? 'unknown'}) than expected ${options.parentFolderId}.`,
+          );
+          return;
         }
       }
 
-      if (itemIndex > -1) {
-        targetTrack.delete(itemIndex, 1);
-      } else {
-        console.warn(`Item with id ${itemId} not found in track ${trackIndex}.`);
+      if (
+        options?.expectedTrackIndex !== undefined &&
+        location.trackIndex !== options.expectedTrackIndex
+      ) {
+        console.warn(
+          `Item ${itemId} was found in track ${location.trackIndex} but expected track ${options.expectedTrackIndex}.`,
+        );
+        return;
       }
+
+      location.track.delete(location.entryIndex, 1);
+      deleted = true;
+    });
+
+    return deleted;
+  }
+
+  /**
+   * @deprecated Prefer using deleteItem and specifying parentFolderId/expectedTrackIndex if needed.
+   */
+  public deleteItemFromTrack(
+    trackIndex: number,
+    itemId: string,
+    options?: { parentFolderId?: string },
+  ): boolean {
+    return this.deleteItem(itemId, {
+      expectedTrackIndex: trackIndex,
+      parentFolderId: options?.parentFolderId,
     });
   }
 
-  // ... Other CRUD methods (moveItem, updateItem, createNestedFolder, etc.)
-  // would be implemented here, all manipulating the Y.js data directly.
+  private getTargetFolder(folderId?: string): YFolder | null {
+    if (!folderId) {
+      return this.yRootFolder;
+    }
+
+    const rootId = this.yRootFolder.get('id');
+    if (rootId === folderId) {
+      return this.yRootFolder;
+    }
+
+    const rootTracks = this.yRootFolder.get('strips') as YTrackList | undefined;
+    if (!rootTracks) {
+      return null;
+    }
+
+    return this.findFolderInTracks(rootTracks, folderId);
+  }
+
+  private ensureTrackList(folder: YFolder): YTrackList {
+    let trackList = folder.get('strips') as YTrackList | undefined;
+    if (!trackList) {
+      trackList = new Y.Array<YTrack>();
+      folder.set('strips', trackList);
+    }
+    return trackList;
+  }
+
+  private findFolderInTracks(trackList: YTrackList, folderId: string): YFolder | null {
+    for (let trackIndex = 0; trackIndex < trackList.length; trackIndex++) {
+      const track = trackList.get(trackIndex);
+      if (!track) {
+        continue;
+      }
+
+      for (let entryIndex = 0; entryIndex < track.length; entryIndex++) {
+        const entry = track.get(entryIndex);
+        if (!entry || !this.isYFolder(entry)) {
+          continue;
+        }
+
+        const entryId = entry.get('id');
+        if (entryId === folderId) {
+          return entry;
+        }
+
+        const nestedTracks = entry.get('strips') as YTrackList | undefined;
+        if (!nestedTracks) {
+          continue;
+        }
+
+        const nestedMatch = this.findFolderInTracks(nestedTracks, folderId);
+        if (nestedMatch) {
+          return nestedMatch;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private findItemLocationById(
+    itemId: string,
+    trackList: YTrackList | undefined = this.yRootFolder.get('strips') as YTrackList | undefined,
+    parentFolder: YFolder = this.yRootFolder,
+  ): ItemLocation | null {
+    if (!trackList) {
+      return null;
+    }
+
+    for (let trackIndex = 0; trackIndex < trackList.length; trackIndex++) {
+      const track = trackList.get(trackIndex);
+      if (!track) {
+        continue;
+      }
+
+      for (let entryIndex = 0; entryIndex < track.length; entryIndex++) {
+        const entry = track.get(entryIndex);
+        if (!entry) {
+          continue;
+        }
+
+        const entryId = entry.get('id');
+        if (typeof entryId === 'string' && entryId === itemId) {
+          return {
+            parentFolder,
+            parentTrackList: trackList,
+            track,
+            trackIndex,
+            entryIndex,
+            item: entry,
+          };
+        }
+
+        if (this.isYFolder(entry)) {
+          const nestedTracks = entry.get('strips') as YTrackList | undefined;
+          const nestedLocation = this.findItemLocationById(itemId, nestedTracks, entry);
+          if (nestedLocation) {
+            return nestedLocation;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeInsertIndex(position: number | undefined, length: number): number {
+    if (position === undefined) {
+      return length;
+    }
+    if (Number.isNaN(position)) {
+      return length;
+    }
+    if (position < 0) {
+      return 0;
+    }
+    if (position > length) {
+      return length;
+    }
+    return Math.floor(position);
+  }
+
+  private clampInsertIndex(index: number, length: number): number {
+    if (index < 0) {
+      return 0;
+    }
+    if (index > length) {
+      return length;
+    }
+    return index;
+  }
 
   private isYStrip(value: YTimelineEntry | undefined): value is YStrip {
     return value?.get('type') === 'strip';
