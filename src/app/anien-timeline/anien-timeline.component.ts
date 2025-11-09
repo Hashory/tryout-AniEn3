@@ -1,7 +1,7 @@
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy, computed } from '@angular/core';
 import { TimelineStateService } from './anien-timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
+import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
 
 @Component({
   selector: 'app-anien-timeline',
@@ -10,18 +10,29 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
       <button (click)="addTrack()">+</button>
       <div class="timeline-ruller" style="color:white;">Ruller Here</div>
     </div>
-    <div class="timeline-sidebar"></div>
+    <div
+      class="timeline-sidebar"
+      tabindex="0"
+      (click)="onBackgroundClick($event)"
+      (keydown.enter)="onBackgroundKeydown($event)"
+      (keydown.space)="onBackgroundKeydown($event)"
+    ></div>
 
     <div class="timeline-main-wrapper">
       <div
         class="timeline-main"
         [style.width]="'calc(var(--timeline-frame-size) * 1000)'"
         [style.height]="'calc(var(--timeline-track-height) * ' + 100 + ')'"
+        tabindex="0"
+        (click)="onBackgroundClick($event)"
+        (keydown.enter)="onBackgroundKeydown($event)"
+        (keydown.space)="onBackgroundKeydown($event)"
       >
         @for (item of timelineItems(); track item.id; let i = $index) {
           @if (item.type === 'strip') {
             <div
               class="strip"
+              tabindex="0"
               [style.display]="item.isParentFolderVisible ? 'block' : 'none'"
               [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
               [style.top]="
@@ -30,12 +41,17 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
                 ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
               "
               [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
+              [class.selected]="item.isSelected"
+              (click)="onItemClick($event, item.id)"
+              (keydown.enter)="onItemKeydown($event, item.id)"
+              (keydown.space)="onItemKeydown($event, item.id)"
             >
               {{ item.source }}
             </div>
           } @else {
             <div
               class="folder"
+              tabindex="0"
               [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
               [style.top]="
                 'calc(' +
@@ -43,14 +59,15 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
                 ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
               "
               [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
+              [class.selected]="item.isSelected"
+              (click)="onItemClick($event, item.id)"
+              (keydown.enter)="onItemKeydown($event, item.id)"
+              (keydown.space)="onItemKeydown($event, item.id)"
             >
               <div class="folder-header" [class.expanded]="item.isExpanded">
-                <button type="button" (click)="toggleFolder(item.id)">
-                  <ng-icon
-                    name="heroChevronRightMicro"
-                    [style.rotate]="item.isExpanded ? '90deg' : '0deg'"
-                  />
-                </button>
+                <div type="button">
+                  <ng-icon name="heroFolderMicro" />
+                </div>
                 <div>{{ item.name }}</div>
                 <button>
                   <ng-icon name="heroChevronUpDownMicro" [style.rotate]="'90deg'" />
@@ -72,9 +89,45 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         }
       </div>
     </div>
+
+    <div class="timeline-actions">
+      <div class="actions-label">Create</div>
+      <div class="actions-group">
+        <button type="button" (click)="createStrip()">Add Strip</button>
+        <button type="button" (click)="createFolder()">Add Folder</button>
+      </div>
+      <div class="actions-label">Selection Actions</div>
+      <div class="actions-group">
+        <button type="button" (click)="shiftSelection(-1)" [disabled]="!hasSelection()">
+          Move -1 frame
+        </button>
+        <button type="button" (click)="shiftSelection(1)" [disabled]="!hasSelection()">
+          Move +1 frame
+        </button>
+        <button type="button" (click)="shiftSelection(-10)" [disabled]="!hasSelection()">
+          Move -10 frames
+        </button>
+        <button type="button" (click)="shiftSelection(10)" [disabled]="!hasSelection()">
+          Move +10 frames
+        </button>
+        <button type="button" (click)="adjustSelectionLength(-1)" [disabled]="!hasSelection()">
+          Shorten -1 frame
+        </button>
+        <button type="button" (click)="adjustSelectionLength(1)" [disabled]="!hasSelection()">
+          Extend +1 frame
+        </button>
+        <button type="button" (click)="deleteSelected()" [disabled]="!hasSelection()">
+          Delete Selected
+        </button>
+      </div>
+    </div>
   `,
   styles: [
     `
+      * {
+        outline: none;
+      }
+
       :host {
         /* variables */
         --timeline-frame-size: 2px;
@@ -98,6 +151,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         grid-template-rows: 25px auto;
         grid-template-columns: var(--timeline-sidebar-width) auto;
         column-gap: var(--timeline-grid-gap);
+        position: relative;
       }
 
       .timeline-header {
@@ -142,6 +196,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         padding: 0 var(--timeline-strip-padding-x);
         border-radius: 5px;
         position: absolute;
+        cursor: pointer;
       }
 
       .timeline-main .folder {
@@ -149,6 +204,7 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         position: absolute;
         display: flex;
         flex-direction: column;
+        cursor: pointer;
       }
 
       .timeline-main .folder .folder-header {
@@ -199,25 +255,136 @@ import { heroChevronRightMicro, heroChevronUpDownMicro } from '@ng-icons/heroico
         justify-content: center;
         align-items: center;
       }
+
+      .timeline-main .strip.selected,
+      .timeline-main .folder.selected .folder-header {
+        box-shadow: 0 0 0 2px #8dd7ff inset;
+      }
+
+      .timeline-actions {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
+      .timeline-actions button {
+        padding: 6px 12px;
+        border-radius: 4px;
+        border: none;
+        background-color: #2f6fed;
+        color: #ffffff;
+        cursor: pointer;
+        min-width: 138px;
+      }
+
+      .timeline-actions button:disabled {
+        background-color: #3a3f49;
+        cursor: not-allowed;
+        color: #888d9a;
+      }
+
+      .timeline-actions .actions-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #9aa3b5;
+      }
+
+      .timeline-actions .actions-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   imports: [NgIcon],
-  viewProviders: [provideIcons({ heroChevronRightMicro, heroChevronUpDownMicro })],
+  viewProviders: [provideIcons({ heroFolderMicro, heroChevronUpDownMicro })],
 })
 export class AnienTimelineComponent {
   private readonly stateService = inject(TimelineStateService);
 
   public readonly timelineItems = this.stateService.timelineItems;
   public readonly timelineName = this.stateService.timelineName;
+  public readonly selectedItemIds = this.stateService.selectedItemIds;
+  public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
 
   public addTrack(): void {
     this.stateService.addTrack();
   }
 
-  public toggleFolder(trackId: string): void {
-    this.stateService.toggleFolderExpansion(trackId);
+  public createStrip(): void {
+    this.stateService.createStrip();
+  }
+
+  public createFolder(): void {
+    this.stateService.createFolder();
+  }
+
+  public onItemClick(event: MouseEvent, itemId: string): void {
+    const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (event.shiftKey) {
+      this.stateService.selectItem(itemId, true);
+      return;
+    }
+
+    this.stateService.selectItem(itemId, isMultiSelect);
+  }
+
+  public onItemKeydown(event: KeyboardEvent | Event, itemId: string): void {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key !== 'enter' && key !== ' ' && key !== 'spacebar') {
+      return;
+    }
+
+    event.preventDefault();
+    const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (event.shiftKey) {
+      this.stateService.selectItem(itemId, true);
+      return;
+    }
+
+    this.stateService.selectItem(itemId, isMultiSelect);
+  }
+
+  public deleteSelected(): void {
+    this.stateService.deleteSelectedItem();
+  }
+
+  public shiftSelection(delta: number): void {
+    this.stateService.shiftSelectedByFrames(delta);
+  }
+
+  public adjustSelectionLength(delta: number): void {
+    this.stateService.adjustSelectedLength(delta);
+  }
+
+  public onBackgroundClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.closest('.strip, .folder')) {
+      return;
+    }
+    this.stateService.clearSelection();
+  }
+
+  public onBackgroundKeydown(event: KeyboardEvent | Event): void {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+    const key = event.key.toLowerCase();
+    if (key !== 'enter' && key !== ' ' && key !== 'spacebar') {
+      return;
+    }
+    event.preventDefault();
+    this.stateService.clearSelection();
   }
 
   // Helper for testing
