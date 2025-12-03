@@ -1,5 +1,5 @@
 import { Component, inject, ChangeDetectionStrategy, computed } from '@angular/core';
-import { TimelineStateService } from './anien-timeline-state.service';
+import { TimelineStateService, StripVM, FolderVM } from './anien-timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
 
@@ -42,11 +42,19 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
               "
               [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
               [class.selected]="item.isSelected"
-              (click)="onItemClick($event, item.id)"
+              (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
               (keydown.space)="onItemKeydown($event, item.id)"
             >
+              <div
+                class="resize-handle left"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
+              ></div>
               {{ item.source }}
+              <div
+                class="resize-handle right"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
+              ></div>
             </div>
           } @else {
             <div
@@ -60,10 +68,14 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
               "
               [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
               [class.selected]="item.isSelected"
-              (click)="onItemClick($event, item.id)"
+              (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
               (keydown.space)="onItemKeydown($event, item.id)"
             >
+              <div
+                class="resize-handle left"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
+              ></div>
               <div class="folder-header" [class.expanded]="item.isExpanded">
                 <div type="button">
                   <ng-icon name="heroFolderMicro" />
@@ -81,6 +93,10 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
                   item.trackLength +
                   ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
                 "
+              ></div>
+              <div
+                class="resize-handle right"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
               ></div>
             </div>
           }
@@ -199,6 +215,24 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         cursor: pointer;
       }
 
+      .timeline-main .strip .resize-handle,
+      .timeline-main .folder .resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        cursor: col-resize;
+        z-index: 20001;
+      }
+      .timeline-main .strip .resize-handle.left,
+      .timeline-main .folder .resize-handle.left {
+        left: 0;
+      }
+      .timeline-main .strip .resize-handle.right,
+      .timeline-main .folder .resize-handle.right {
+        right: 0;
+      }
+
       .timeline-main .folder {
         z-index: 10000;
         position: absolute;
@@ -313,6 +347,24 @@ export class AnienTimelineComponent {
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
 
+  private readonly FRAME_SIZE = 2; // Must match CSS --timeline-frame-size
+
+  private dragState: {
+    type: 'move' | 'resize-left' | 'resize-right';
+    itemId: string;
+    itemType: 'strip' | 'folder';
+    startX: number;
+    initialStartFrame: number;
+    initialLength: number;
+    appliedDeltaFrames: number;
+  } | null = null;
+
+  private mouseDownState: {
+    startX: number;
+    item: StripVM | FolderVM;
+    event: MouseEvent;
+  } | null = null;
+
   public addTrack(): void {
     this.stateService.addTrack();
   }
@@ -326,6 +378,7 @@ export class AnienTimelineComponent {
   }
 
   public onItemClick(event: MouseEvent, itemId: string): void {
+    // Handled by mousedown/mouseup logic for strips, but kept for folders
     const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
     if (event.shiftKey) {
       this.stateService.selectItem(itemId, true);
@@ -334,6 +387,143 @@ export class AnienTimelineComponent {
 
     this.stateService.selectItem(itemId, isMultiSelect);
   }
+
+  public onItemMouseDown(event: MouseEvent, item: StripVM | FolderVM): void {
+    this.mouseDownState = {
+      startX: event.clientX,
+      item,
+      event,
+    };
+
+    window.addEventListener('mousemove', this.onWindowMouseMove);
+    window.addEventListener('mouseup', this.onWindowMouseUp);
+  }
+
+  public onResizeHandleMouseDown(
+    event: MouseEvent,
+    item: StripVM | FolderVM,
+    side: 'left' | 'right',
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    this.stateService.selectItem(item.id, false);
+
+    this.dragState = {
+      type: side === 'left' ? 'resize-left' : 'resize-right',
+      itemId: item.id,
+      itemType: item.type,
+      startX: event.clientX,
+      initialStartFrame: item.startFrame,
+      initialLength: item.length,
+      appliedDeltaFrames: 0,
+    };
+
+    window.addEventListener('mousemove', this.onWindowMouseMove);
+    window.addEventListener('mouseup', this.onWindowMouseUp);
+  }
+
+  private onWindowMouseMove = (event: MouseEvent) => {
+    if (this.dragState) {
+      this.handleDrag(event);
+    } else if (this.mouseDownState) {
+      const deltaX = Math.abs(event.clientX - this.mouseDownState.startX);
+      if (deltaX > 3) {
+        this.startMoveDrag();
+      }
+    }
+  };
+
+  private startMoveDrag() {
+    if (!this.mouseDownState) return;
+
+    const { item, event } = this.mouseDownState;
+
+    const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (!item.isSelected) {
+      this.stateService.selectItem(item.id, isMultiSelect);
+    }
+
+    this.dragState = {
+      type: 'move',
+      itemId: item.id,
+      itemType: item.type,
+      startX: this.mouseDownState.startX,
+      initialStartFrame: item.startFrame,
+      initialLength: item.length,
+      appliedDeltaFrames: 0,
+    };
+
+    this.mouseDownState = null;
+  }
+
+  private handleDrag(event: MouseEvent) {
+    if (!this.dragState) return;
+
+    const deltaPixels = event.clientX - this.dragState.startX;
+    const currentDeltaFrames = Math.round(deltaPixels / this.FRAME_SIZE);
+    const diffFrames = currentDeltaFrames - this.dragState.appliedDeltaFrames;
+
+    if (diffFrames === 0) return;
+
+    if (this.dragState.type === 'move') {
+      this.stateService.shiftSelectedByFrames(diffFrames);
+      this.dragState.appliedDeltaFrames += diffFrames;
+    } else if (this.dragState.type === 'resize-left') {
+      let newStart = this.dragState.initialStartFrame + currentDeltaFrames;
+      let newLength = this.dragState.initialLength - currentDeltaFrames;
+
+      if (newLength < 1) {
+        newLength = 1;
+        newStart = this.dragState.initialStartFrame + this.dragState.initialLength - 1;
+      }
+      if (newStart < 0) {
+        newStart = 0;
+        newLength = this.dragState.initialStartFrame + this.dragState.initialLength;
+      }
+
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, {
+          startFrame: newStart,
+          length: newLength,
+        });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, {
+          startFrame: newStart,
+          length: newLength,
+        });
+      }
+      this.dragState.appliedDeltaFrames = currentDeltaFrames;
+    } else if (this.dragState.type === 'resize-right') {
+      const newLength = Math.max(1, this.dragState.initialLength + currentDeltaFrames);
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, { length: newLength });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, { length: newLength });
+      }
+      this.dragState.appliedDeltaFrames = currentDeltaFrames;
+    }
+  }
+
+  private onWindowMouseUp = () => {
+    window.removeEventListener('mousemove', this.onWindowMouseMove);
+    window.removeEventListener('mouseup', this.onWindowMouseUp);
+
+    if (this.dragState) {
+      this.dragState = null;
+    } else if (this.mouseDownState) {
+      const { item, event: downEvent } = this.mouseDownState;
+
+      const isMultiSelect = downEvent.ctrlKey || downEvent.metaKey || downEvent.shiftKey;
+      if (downEvent.shiftKey) {
+        this.stateService.selectItem(item.id, true);
+      } else {
+        this.stateService.selectItem(item.id, isMultiSelect);
+      }
+
+      this.mouseDownState = null;
+    }
+  };
 
   public onItemKeydown(event: KeyboardEvent | Event, itemId: string): void {
     if (!(event instanceof KeyboardEvent)) {
