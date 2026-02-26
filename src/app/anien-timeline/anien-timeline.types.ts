@@ -30,30 +30,28 @@ export interface Folder {
   startFrame: number;
   /** The total length of the folder in frames. */
   length: number;
-  /**
-   * A 2D array representing tracks (outer array) and their items (inner array).
-   * Items can be other Strips or nested Folders.
-   */
-  strips: (Strip | Folder)[][];
   /** Indicates if this is the root folder. */
   root?: boolean;
   /** The type identifier for this object. */
   type: 'folder';
 }
 
-export type YStripFields = Strip & Record<string, unknown>;
+export type TimelineEntity = Strip | Folder;
 
-export type YStrip = TypedMap<YStripFields>;
+export interface FlatTimelineSnapshot {
+  rootId: string;
+  entities: Record<string, TimelineEntity>;
+  folderTracks: Record<string, string[][]>;
+}
 
-export type YFolderFields = Omit<Folder, 'strips'> &
-  Record<string, unknown> & {
-    strips: YTrackList;
-  };
+export type YEntityFields = TimelineEntity & Record<string, unknown>;
 
-export type YFolder = TypedMap<YFolderFields>;
+export type YEntity = TypedMap<YEntityFields>;
 
-export type YTimelineEntry = YStrip | YFolder;
+export type YEntitiesMap = Y.Map<YEntity>;
 
-export type YTrack = Y.Array<YTimelineEntry>;
+export type YTrackIdList = Y.Array<string>;
 
-export type YTrackList = Y.Array<YTrack>;
+export type YTrackList = Y.Array<YTrackIdList>;
+
+export type YFolderTracksMap = Y.Map<YTrackList>;

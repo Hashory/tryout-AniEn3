@@ -10,14 +10,14 @@ import {
   DeleteItemOptions,
   ItemLocationDetails,
 } from './anien-timeline-store.service';
-import type { Folder, Strip } from './anien-timeline.types';
+import type { FlatTimelineSnapshot, Folder, Strip, TimelineEntity } from './anien-timeline.types';
 
 class TimelineServiceStub {
-  private snapshot: Folder | null = null;
-  private readonly listeners = new Set<(snapshot: Folder | null) => void>();
+  private snapshot: FlatTimelineSnapshot | null = null;
+  private readonly listeners = new Set<(snapshot: FlatTimelineSnapshot | null) => void>();
   private idCounter = 0;
 
-  public subscribeTimeline(listener: (snapshot: Folder | null) => void): () => void {
+  public subscribeTimeline(listener: (snapshot: FlatTimelineSnapshot | null) => void): () => void {
     this.listeners.add(listener);
     listener(this.snapshot ? this.clone(this.snapshot) : null);
     return () => {
@@ -25,27 +25,24 @@ class TimelineServiceStub {
     };
   }
 
-  public setSnapshot(snapshot: Folder | null): void {
+  public setSnapshot(snapshot: FlatTimelineSnapshot | null): void {
     this.snapshot = snapshot ? this.clone(snapshot) : null;
     this.emitSnapshot();
   }
 
-  public getSnapshot(): Folder | null {
+  public getSnapshot(): FlatTimelineSnapshot | null {
     return this.snapshot ? this.clone(this.snapshot) : null;
   }
 
-  public getItemById(itemId: string): Folder | Strip | null {
+  public getItemById(itemId: string): TimelineEntity | null {
     if (!this.snapshot) {
       return null;
     }
-    if (this.snapshot.id === itemId) {
-      return this.clone(this.snapshot);
-    }
-    const located = this.findItem(itemId);
-    if (!located) {
+    const entity = this.snapshot.entities[itemId];
+    if (!entity) {
       return null;
     }
-    return this.clone(located.item);
+    return this.clone(entity);
   }
 
   public getItemLocation(itemId: string): ItemLocationDetails | null {
@@ -54,23 +51,25 @@ class TimelineServiceStub {
       return null;
     }
 
-    const parentTrack = located.parent.strips[located.trackIndex] ?? [];
+    const parentTrack = this.snapshot?.folderTracks[located.parentId]?.[located.trackIndex] ?? [];
     return {
-      parentFolderId: located.parent.id ?? null,
+      parentFolderId: located.parentId ?? null,
       trackIndex: located.trackIndex,
       entryIndex: located.entryIndex,
       trackLength: parentTrack.length,
-      totalTracks: located.parent.strips.length,
+      totalTracks: this.snapshot?.folderTracks[located.parentId]?.length ?? 0,
     };
   }
 
   public addTrack(folderId?: string, options?: { position?: number }): number | null {
-    const folder = this.resolveFolder(folderId);
-    if (!folder) {
+    const parentId = this.resolveFolderId(folderId);
+    if (!parentId || !this.snapshot) {
       return null;
     }
-    const insertIndex = this.normalizeInsertIndex(options?.position, folder.strips.length);
-    folder.strips.splice(insertIndex, 0, []);
+    const tracks = this.snapshot.folderTracks[parentId] ?? [];
+    const insertIndex = this.normalizeInsertIndex(options?.position, tracks.length);
+    tracks.splice(insertIndex, 0, []);
+    this.snapshot.folderTracks[parentId] = tracks;
     this.emitSnapshot();
     return insertIndex;
   }
@@ -80,11 +79,12 @@ class TimelineServiceStub {
     stripData: StripCreationInput,
     options?: { parentFolderId?: string; position?: number },
   ): string | null {
-    const folder = this.resolveFolder(options?.parentFolderId);
-    if (!folder) {
+    const parentId = this.resolveFolderId(options?.parentFolderId);
+    if (!parentId || !this.snapshot) {
       return null;
     }
-    const track = folder.strips[trackIndex];
+    const tracks = this.snapshot.folderTracks[parentId] ?? [];
+    const track = tracks[trackIndex];
     if (!track) {
       return null;
     }
@@ -97,7 +97,9 @@ class TimelineServiceStub {
       startFrame: stripData.startFrame,
       length: stripData.length,
     };
-    track.splice(insertIndex, 0, newStrip);
+    this.snapshot.entities[id] = newStrip;
+    track.splice(insertIndex, 0, id);
+    this.snapshot.folderTracks[parentId] = tracks;
     this.emitSnapshot();
     return id;
   }
@@ -107,18 +109,18 @@ class TimelineServiceStub {
     folderData: FolderCreationInput,
     options?: { parentFolderId?: string; position?: number },
   ): string | null {
-    const folder = this.resolveFolder(options?.parentFolderId);
-    if (!folder) {
+    const parentId = this.resolveFolderId(options?.parentFolderId);
+    if (!parentId || !this.snapshot) {
       return null;
     }
-    const track = folder.strips[trackIndex];
+    const tracks = this.snapshot.folderTracks[parentId] ?? [];
+    const track = tracks[trackIndex];
     if (!track) {
       return null;
     }
     const insertIndex = this.normalizeInsertIndex(options?.position, track.length);
     const id = folderData.id ?? this.generateId('folder');
     const trackCount = folderData.trackCount ?? 0;
-    const nestedTracks: Folder['strips'] = Array.from({ length: trackCount }, () => []);
     const newFolder: Folder = {
       id,
       type: 'folder',
@@ -126,47 +128,50 @@ class TimelineServiceStub {
       startFrame: folderData.startFrame,
       length: folderData.length,
       root: folderData.root ?? false,
-      strips: nestedTracks,
     };
-    track.splice(insertIndex, 0, newFolder);
+    const nestedTracks: string[][] = Array.from({ length: trackCount }, () => []);
+    this.snapshot.entities[id] = newFolder;
+    this.snapshot.folderTracks[id] = nestedTracks;
+    track.splice(insertIndex, 0, id);
+    this.snapshot.folderTracks[parentId] = tracks;
     this.emitSnapshot();
     return id;
   }
 
   public updateStrip(itemId: string, updates: StripUpdateInput): boolean {
-    const located = this.findItem(itemId);
-    if (!located || located.item.type !== 'strip') {
+    const entity = this.snapshot?.entities[itemId];
+    if (!entity || entity.type !== 'strip') {
       return false;
     }
     if (updates.source !== undefined) {
-      located.item.source = updates.source;
+      entity.source = updates.source;
     }
     if (updates.startFrame !== undefined) {
-      located.item.startFrame = updates.startFrame;
+      entity.startFrame = updates.startFrame;
     }
     if (updates.length !== undefined) {
-      located.item.length = updates.length;
+      entity.length = updates.length;
     }
     this.emitSnapshot();
     return true;
   }
 
   public updateFolder(itemId: string, updates: FolderUpdateInput): boolean {
-    const located = this.findItem(itemId);
-    if (!located || located.item.type !== 'folder') {
+    const entity = this.snapshot?.entities[itemId];
+    if (!entity || entity.type !== 'folder') {
       return false;
     }
     if (updates.name !== undefined) {
-      located.item.name = updates.name;
+      entity.name = updates.name;
     }
     if (updates.startFrame !== undefined) {
-      located.item.startFrame = updates.startFrame;
+      entity.startFrame = updates.startFrame;
     }
     if (updates.length !== undefined) {
-      located.item.length = updates.length;
+      entity.length = updates.length;
     }
     if (updates.root !== undefined) {
-      located.item.root = updates.root;
+      entity.root = updates.root;
     }
     this.emitSnapshot();
     return true;
@@ -174,36 +179,41 @@ class TimelineServiceStub {
 
   public moveItem(itemId: string, target: MoveTargetInput): boolean {
     const located = this.findItem(itemId);
-    if (!located) {
+    if (!located || !this.snapshot) {
       return false;
     }
 
-    const destinationFolder = this.resolveFolder(target.parentFolderId);
-    if (!destinationFolder) {
+    const destinationFolderId = this.resolveFolderId(target.parentFolderId);
+    if (!destinationFolderId) {
       return false;
     }
-    const destinationTrack = destinationFolder.strips[target.trackIndex];
+    const destinationTracks = this.snapshot.folderTracks[destinationFolderId] ?? [];
+    const destinationTrack = destinationTracks[target.trackIndex];
     if (!destinationTrack) {
       return false;
     }
 
-    const [item] = located.parent.strips[located.trackIndex].splice(located.entryIndex, 1);
-    if (!item) {
+    const sourceTracks = this.snapshot.folderTracks[located.parentId] ?? [];
+    const sourceTrack = sourceTracks[located.trackIndex];
+    const [itemIdFromTrack] = sourceTrack.splice(located.entryIndex, 1);
+    if (!itemIdFromTrack) {
       return false;
     }
 
     const insertIndex = this.normalizeInsertIndex(target.position, destinationTrack.length);
-    destinationTrack.splice(insertIndex, 0, item);
+    destinationTrack.splice(insertIndex, 0, itemIdFromTrack);
+    this.snapshot.folderTracks[located.parentId] = sourceTracks;
+    this.snapshot.folderTracks[destinationFolderId] = destinationTracks;
     this.emitSnapshot();
     return true;
   }
 
   public deleteItem(itemId: string, options?: DeleteItemOptions): boolean {
     const located = this.findItem(itemId);
-    if (!located) {
+    if (!located || !this.snapshot) {
       return false;
     }
-    if (options?.parentFolderId && located.parent.id !== options.parentFolderId) {
+    if (options?.parentFolderId && located.parentId !== options.parentFolderId) {
       return false;
     }
     if (
@@ -213,7 +223,10 @@ class TimelineServiceStub {
       return false;
     }
 
-    located.parent.strips[located.trackIndex].splice(located.entryIndex, 1);
+    const sourceTracks = this.snapshot.folderTracks[located.parentId] ?? [];
+    sourceTracks[located.trackIndex].splice(located.entryIndex, 1);
+    this.deleteEntityAndDescendants(itemId);
+    this.snapshot.folderTracks[located.parentId] = sourceTracks;
     this.emitSnapshot();
     return true;
   }
@@ -225,49 +238,60 @@ class TimelineServiceStub {
     }
   }
 
-  private resolveFolder(folderId?: string): Folder | null {
+  private resolveFolderId(folderId?: string): string | null {
     if (!this.snapshot) {
       return null;
     }
-    if (!folderId || this.snapshot.id === folderId) {
-      return this.snapshot;
+    if (!folderId || this.snapshot.rootId === folderId) {
+      return this.snapshot.rootId;
     }
-    const located = this.findItem(folderId);
-    if (!located || located.item.type !== 'folder') {
-      return null;
-    }
-    return located.item;
+    const entity = this.snapshot.entities[folderId];
+    return entity?.type === 'folder' ? folderId : null;
   }
 
   private findItem(
     itemId: string,
-  ): { parent: Folder; trackIndex: number; entryIndex: number; item: Folder | Strip } | null {
+  ): { parentId: string; trackIndex: number; entryIndex: number } | null {
     if (!this.snapshot) {
       return null;
     }
-    return this.findItemRecursive(this.snapshot, itemId);
-  }
 
-  private findItemRecursive(
-    folder: Folder,
-    itemId: string,
-  ): { parent: Folder; trackIndex: number; entryIndex: number; item: Folder | Strip } | null {
-    for (let trackIndex = 0; trackIndex < folder.strips.length; trackIndex++) {
-      const track = folder.strips[trackIndex];
-      for (let entryIndex = 0; entryIndex < track.length; entryIndex++) {
-        const item = track[entryIndex];
-        if (item.id === itemId) {
-          return { parent: folder, trackIndex, entryIndex, item };
-        }
-        if (item.type === 'folder') {
-          const nested = this.findItemRecursive(item, itemId);
-          if (nested) {
-            return nested;
+    for (const [folderId, tracks] of Object.entries(this.snapshot.folderTracks)) {
+      for (let trackIndex = 0; trackIndex < tracks.length; trackIndex++) {
+        const track = tracks[trackIndex];
+        for (let entryIndex = 0; entryIndex < track.length; entryIndex++) {
+          const entryId = track[entryIndex];
+          if (entryId === itemId) {
+            return { parentId: folderId, trackIndex, entryIndex };
           }
         }
       }
     }
+
     return null;
+  }
+
+  private deleteEntityAndDescendants(itemId: string): void {
+    if (!this.snapshot) {
+      return;
+    }
+
+    const entity = this.snapshot.entities[itemId];
+    if (!entity) {
+      return;
+    }
+
+    if (entity.type === 'folder') {
+      const tracks = this.snapshot.folderTracks[itemId] ?? [];
+      for (const track of tracks) {
+        for (const childId of track) {
+          this.deleteEntityAndDescendants(childId);
+        }
+      }
+      delete this.snapshot.folderTracks[itemId];
+    }
+
+    delete this.snapshot.entities[itemId];
   }
 
   private normalizeInsertIndex(position: number | undefined, length: number): number {
@@ -288,7 +312,7 @@ class TimelineServiceStub {
     return `${prefix}-${this.idCounter}`;
   }
 
-  private clone<T extends Folder | Strip>(value: T): T {
+  private clone<T extends FlatTimelineSnapshot | TimelineEntity>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
   }
 }
@@ -321,7 +345,6 @@ describe('TimelineStateService', () => {
       startFrame: 100,
       length: 200,
       root: false,
-      strips: [[nestedStrip]],
     };
 
     const topStrip: Strip = {
@@ -339,9 +362,22 @@ describe('TimelineStateService', () => {
       startFrame: 30,
       length: 400,
       root: true,
-      strips: [[topStrip], [nestedFolder]],
     };
 
-    timelineServiceStub.setSnapshot(rootFolder);
+    const snapshot: FlatTimelineSnapshot = {
+      rootId: rootFolder.id,
+      entities: {
+        [rootFolder.id]: rootFolder,
+        [topStrip.id]: topStrip,
+        [nestedFolder.id]: nestedFolder,
+        [nestedStrip.id]: nestedStrip,
+      },
+      folderTracks: {
+        [rootFolder.id]: [[topStrip.id], [nestedFolder.id]],
+        [nestedFolder.id]: [[nestedStrip.id]],
+      },
+    };
+
+    timelineServiceStub.setSnapshot(snapshot);
   });
 });

@@ -8,7 +8,7 @@ import {
   MoveTargetInput,
   DeleteItemOptions,
 } from './anien-timeline-store.service';
-import { Strip, Folder } from './anien-timeline.types';
+import { FlatTimelineSnapshot, Folder, Strip } from './anien-timeline.types';
 
 // ViewModel types augment the domain model with UI-specific state.
 
@@ -16,15 +16,21 @@ export interface StripVM extends Strip {
   isSelected: boolean;
   trackOrder: number;
   isParentFolderVisible: boolean;
+  parentFolderId: string | null;
+  parentStartFrame: number;
+  absoluteStartFrame: number;
 }
 
-export interface FolderVM extends Omit<Folder, 'strips'> {
+export interface FolderVM extends Folder {
   isSelected: boolean;
   isExpanded: boolean;
   trackOrder: number;
   trackLength: number;
   isParentFolderVisible: boolean;
   containedIds: string[];
+  parentFolderId: string | null;
+  parentStartFrame: number;
+  absoluteStartFrame: number;
 }
 
 type TimelineItemVM = StripVM | FolderVM;
@@ -42,7 +48,7 @@ export class TimelineStateService {
   private readonly destroyRef = inject(DestroyRef);
 
   // Subscribe to model changes (plain JS snapshot provided by the Yjs store)
-  private readonly model = signal<Folder | null>(null);
+  private readonly model = signal<FlatTimelineSnapshot | null>(null);
 
   // UI State Signals
   private readonly _currentFrame = signal<number>(0);
@@ -57,8 +63,13 @@ export class TimelineStateService {
   // Derived timeline items exposed to consuming components.
 
   public readonly timelineItems: Signal<TimelineItemVM[]> = computed(() => {
-    const rootModel = this.model();
-    if (!rootModel) {
+    const snapshot = this.model();
+    if (!snapshot) {
+      return [];
+    }
+
+    const rootEntity = snapshot.entities[snapshot.rootId];
+    if (!rootEntity || rootEntity.type !== 'folder') {
       return [];
     }
 
@@ -70,13 +81,19 @@ export class TimelineStateService {
     let nextTrackOrder = 0;
 
     const processTrack = (
-      trackItems: (Strip | Folder)[],
+      trackItems: string[],
       parentVisible: boolean,
       frameOffset: number,
+      parentFolderId: string | null,
     ): void => {
       const currentTrackOrder = nextTrackOrder++;
 
-      for (const item of trackItems) {
+      for (const itemId of trackItems) {
+        const item = snapshot.entities[itemId];
+        if (!item) {
+          continue;
+        }
+
         if (item.type === 'strip') {
           const absoluteStartFrame = item.startFrame + frameOffset;
           items.push(
@@ -86,6 +103,8 @@ export class TimelineStateService {
               parentVisible,
               context.selectedIds,
               absoluteStartFrame,
+              parentFolderId,
+              frameOffset,
             ),
           );
           continue;
@@ -98,25 +117,34 @@ export class TimelineStateService {
           parentVisible,
           context,
           absoluteStartFrame,
+          snapshot,
+          parentFolderId,
+          frameOffset,
         );
         items.push(folderVM);
 
         const childVisibility = parentVisible;
-        for (const nestedTrack of item.strips) {
-          processTrack(nestedTrack, childVisibility, absoluteStartFrame);
+        const nestedTracks = snapshot.folderTracks[item.id] ?? [];
+        for (const nestedTrack of nestedTracks) {
+          processTrack(nestedTrack, childVisibility, absoluteStartFrame, item.id);
         }
       }
     };
 
-    for (const track of rootModel.strips) {
-      processTrack(track, true, rootModel.startFrame);
+    const rootTracks = snapshot.folderTracks[rootEntity.id] ?? [];
+    for (const track of rootTracks) {
+      processTrack(track, true, rootEntity.startFrame, rootEntity.id);
     }
 
     return items;
   });
 
   // Expose the root folder name via a read-only signal.
-  public readonly timelineName = computed(() => this.model()?.name ?? 'Loading...');
+  public readonly timelineName = computed(() => {
+    const snapshot = this.model();
+    const rootEntity = snapshot?.entities[snapshot?.rootId ?? ''];
+    return rootEntity?.type === 'folder' ? rootEntity.name : 'Loading...';
+  });
 
   // View intents update local UI state and delegate to the store as needed.
   public setFrame(frame: number): void {
@@ -269,9 +297,12 @@ export class TimelineStateService {
     const idsToClear = new Set<string>([itemId]);
 
     if (snapshotBeforeDelete?.type === 'folder') {
-      const nestedIds = this.collectContainedIds(snapshotBeforeDelete.strips);
-      for (const nestedId of nestedIds) {
-        idsToClear.add(nestedId);
+      const model = this.model();
+      if (model) {
+        const nestedIds = this.collectContainedIds(model, snapshotBeforeDelete.id);
+        for (const nestedId of nestedIds) {
+          idsToClear.add(nestedId);
+        }
       }
     }
 
@@ -352,13 +383,18 @@ export class TimelineStateService {
     isParentFolderVisible: boolean,
     selectedIds: ReadonlySet<string>,
     absoluteStartFrame: number,
+    parentFolderId: string | null,
+    parentStartFrame: number,
   ): StripVM {
     return {
       ...strip,
       isSelected: selectedIds.has(strip.id),
       trackOrder,
       isParentFolderVisible,
-      startFrame: absoluteStartFrame,
+      startFrame: strip.startFrame,
+      parentFolderId,
+      parentStartFrame,
+      absoluteStartFrame,
     };
   }
 
@@ -368,31 +404,47 @@ export class TimelineStateService {
     isParentFolderVisible: boolean,
     context: MapContext,
     absoluteStartFrame: number,
+    snapshot: FlatTimelineSnapshot,
+    parentFolderId: string | null,
+    parentStartFrame: number,
   ): FolderVM {
     const { selectedIds } = context;
     const isExpanded = true;
-    const { strips, ...rest } = folder;
+    const { ...rest } = folder;
+    const trackLength = snapshot.folderTracks[folder.id]?.length ?? 0;
 
     return {
       ...rest,
       isSelected: selectedIds.has(folder.id),
       isExpanded,
       trackOrder,
-      trackLength: strips.length,
+      trackLength,
       isParentFolderVisible,
-      containedIds: this.collectContainedIds(strips),
-      startFrame: absoluteStartFrame,
+      containedIds: this.collectContainedIds(snapshot, folder.id),
+      startFrame: folder.startFrame,
+      parentFolderId,
+      parentStartFrame,
+      absoluteStartFrame,
     };
   }
 
-  private collectContainedIds(tracks: Folder['strips']): string[] {
+  private collectContainedIds(snapshot: FlatTimelineSnapshot, folderId: string): string[] {
     const collected: string[] = [];
+    const queue: string[] = [folderId];
 
-    for (const track of tracks) {
-      for (const item of track) {
-        collected.push(item.id);
-        if (item.type === 'folder') {
-          collected.push(...this.collectContainedIds(item.strips));
+    while (queue.length) {
+      const currentFolderId = queue.shift();
+      if (!currentFolderId) {
+        continue;
+      }
+      const tracks = snapshot.folderTracks[currentFolderId] ?? [];
+      for (const track of tracks) {
+        for (const itemId of track) {
+          collected.push(itemId);
+          const entity = snapshot.entities[itemId];
+          if (entity?.type === 'folder') {
+            queue.push(entity.id);
+          }
         }
       }
     }
@@ -449,10 +501,10 @@ export class TimelineStateService {
     position: number;
     startFrame: number;
   } | null {
-    const rootModel = this.model();
-    const parentFolderId = rootModel?.id;
+    const snapshot = this.model();
+    const rootId = snapshot?.rootId;
 
-    if (!rootModel) {
+    if (!snapshot || !rootId) {
       const createdTrackIndex = this.yjsService.addTrack();
       return {
         parentFolderId: undefined,
@@ -462,14 +514,19 @@ export class TimelineStateService {
       };
     }
 
-    const rootTracks = rootModel.strips;
+    const rootEntity = snapshot.entities[rootId];
+    if (!rootEntity || rootEntity.type !== 'folder') {
+      return null;
+    }
+
+    const rootTracks = snapshot.folderTracks[rootId] ?? [];
     if (rootTracks.length === 0) {
-      const createdTrackIndex = this.yjsService.addTrack(parentFolderId);
+      const createdTrackIndex = this.yjsService.addTrack(rootId);
       return {
-        parentFolderId: parentFolderId ?? undefined,
+        parentFolderId: rootId,
         trackIndex: createdTrackIndex ?? 0,
         position: 0,
-        startFrame: rootModel.startFrame,
+        startFrame: rootEntity.startFrame,
       };
     }
 
@@ -477,10 +534,10 @@ export class TimelineStateService {
     const position = rootTracks[trackIndex]?.length ?? 0;
 
     return {
-      parentFolderId: parentFolderId ?? undefined,
+      parentFolderId: rootId,
       trackIndex,
       position,
-      startFrame: rootModel.startFrame,
+      startFrame: rootEntity.startFrame,
     };
   }
 

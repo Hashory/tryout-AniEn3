@@ -1,4 +1,11 @@
-import { Component, inject, ChangeDetectionStrategy, computed } from '@angular/core';
+import {
+  Component,
+  inject,
+  ChangeDetectionStrategy,
+  computed,
+  ChangeDetectorRef,
+  NgZone,
+} from '@angular/core';
 import { TimelineStateService, StripVM, FolderVM } from './anien-timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
@@ -40,7 +47,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
                 item.trackOrder +
                 ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
+              [style.left]="'calc(var(--timeline-frame-size) * ' + item.absoluteStartFrame + ')'"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -66,7 +73,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
                 item.trackOrder +
                 ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + item.startFrame + ')'"
+              [style.left]="'calc(var(--timeline-frame-size) * ' + item.absoluteStartFrame + ')'"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -341,6 +348,8 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
 })
 export class AnienTimelineComponent {
   private readonly stateService = inject(TimelineStateService);
+  private readonly changeDetectorRef = inject(ChangeDetectorRef);
+  private readonly ngZone = inject(NgZone);
 
   public readonly timelineItems = this.stateService.timelineItems;
   public readonly timelineName = this.stateService.timelineName;
@@ -364,6 +373,9 @@ export class AnienTimelineComponent {
     item: StripVM | FolderVM;
     event: MouseEvent;
   } | null = null;
+
+  private renderFrameId: number | null = null;
+  private detachRenderId: number | null = null;
 
   public addTrack(): void {
     this.stateService.addTrack();
@@ -395,6 +407,8 @@ export class AnienTimelineComponent {
       event,
     };
 
+    this.startZoneLessDragLoop();
+
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
   }
@@ -418,6 +432,8 @@ export class AnienTimelineComponent {
       initialLength: item.length,
       appliedDeltaFrames: 0,
     };
+
+    this.startZoneLessDragLoop();
 
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
@@ -467,8 +483,15 @@ export class AnienTimelineComponent {
     if (diffFrames === 0) return;
 
     if (this.dragState.type === 'move') {
-      this.stateService.shiftSelectedByFrames(diffFrames);
-      this.dragState.appliedDeltaFrames += diffFrames;
+      const nextStartFrame = this.dragState.initialStartFrame + currentDeltaFrames;
+      const targetStart = Math.max(0, nextStartFrame);
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, { startFrame: targetStart });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, { startFrame: targetStart });
+      }
+      this.dragState.appliedDeltaFrames = currentDeltaFrames;
+      this.requestRender();
     } else if (this.dragState.type === 'resize-left') {
       let newStart = this.dragState.initialStartFrame + currentDeltaFrames;
       let newLength = this.dragState.initialLength - currentDeltaFrames;
@@ -494,6 +517,7 @@ export class AnienTimelineComponent {
         });
       }
       this.dragState.appliedDeltaFrames = currentDeltaFrames;
+      this.requestRender();
     } else if (this.dragState.type === 'resize-right') {
       const newLength = Math.max(1, this.dragState.initialLength + currentDeltaFrames);
       if (this.dragState.itemType === 'strip') {
@@ -502,12 +526,15 @@ export class AnienTimelineComponent {
         this.stateService.updateFolder(this.dragState.itemId, { length: newLength });
       }
       this.dragState.appliedDeltaFrames = currentDeltaFrames;
+      this.requestRender();
     }
   }
 
   private onWindowMouseUp = () => {
     window.removeEventListener('mousemove', this.onWindowMouseMove);
     window.removeEventListener('mouseup', this.onWindowMouseUp);
+
+    this.stopZoneLessDragLoop();
 
     if (this.dragState) {
       this.dragState = null;
@@ -522,6 +549,7 @@ export class AnienTimelineComponent {
       }
 
       this.mouseDownState = null;
+      this.requestRender();
     }
   };
 
@@ -563,6 +591,7 @@ export class AnienTimelineComponent {
       return;
     }
     this.stateService.clearSelection();
+    this.requestRender();
   }
 
   public onBackgroundKeydown(event: KeyboardEvent | Event): void {
@@ -575,6 +604,41 @@ export class AnienTimelineComponent {
     }
     event.preventDefault();
     this.stateService.clearSelection();
+    this.requestRender();
+  }
+
+  private requestRender(): void {
+    if (this.renderFrameId !== null) {
+      return;
+    }
+
+    this.renderFrameId = window.requestAnimationFrame(() => {
+      this.renderFrameId = null;
+      this.changeDetectorRef.detectChanges();
+    });
+  }
+
+  private startZoneLessDragLoop(): void {
+    if (this.detachRenderId !== null) {
+      return;
+    }
+
+    this.ngZone.runOutsideAngular(() => {
+      const tick = () => {
+        this.changeDetectorRef.detectChanges();
+        this.detachRenderId = window.requestAnimationFrame(tick);
+      };
+      this.detachRenderId = window.requestAnimationFrame(tick);
+    });
+  }
+
+  private stopZoneLessDragLoop(): void {
+    if (this.detachRenderId === null) {
+      return;
+    }
+    window.cancelAnimationFrame(this.detachRenderId);
+    this.detachRenderId = null;
+    this.requestRender();
   }
 
   // Helper for testing
