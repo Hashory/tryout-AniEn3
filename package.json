@@ -1,65 +1,31 @@
 {
-  "name": "tryout-ani-en3",
-  "version": "0.0.0",
+  "name": "@ani-en/workspace",
+  "version": "0.0.1",
+  "private": true,
   "scripts": {
-    "ng": "ng",
-    "start": "ng serve --host 127.0.0.1",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test",
-    "lint": "ng lint",
+    "docker:up": "docker compose -f infrastructure/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker-compose.yml down",
+    "docker:restart": "docker compose -f infrastructure/docker-compose.yml restart",
+    "dev": "pnpm run --parallel \"/^dev:.*/\"",
+    "dev:frontend": "pnpm -F @ani-en/frontend start",
+    "dev:server": "pnpm -F @ani-en/server dev",
+    "build": "pnpm run \"/^build:.*/\"",
+    "build:frontend": "pnpm -F @ani-en/frontend build",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
     "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "prepare": "lefthook install"
   },
-  "prettier": {
-    "printWidth": 100,
-    "singleQuote": true,
-    "overrides": [
-      {
-        "files": "*.html",
-        "options": {
-          "parser": "angular"
-        }
-      }
-    ]
-  },
-  "private": true,
-  "dependencies": {
-    "@angular/common": "^21.0.3",
-    "@angular/compiler": "^21.0.3",
-    "@angular/core": "^21.0.3",
-    "@angular/forms": "^21.0.3",
-    "@angular/platform-browser": "^21.0.3",
-    "@angular/router": "^21.0.3",
-    "@ng-icons/core": "^33.0.0",
-    "@ng-icons/heroicons": "^33.0.0",
-    "angular-split": "^20.0.0",
-    "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "y-indexeddb": "^9.0.12",
-    "yjs": "^13.6.27",
-    "zone.js": "~0.15.0"
-  },
   "devDependencies": {
-    "@angular-eslint/builder": "21.0.1",
-    "@angular/build": "^21.0.2",
-    "@angular/cli": "^21.0.2",
-    "@angular/compiler-cli": "^21.0.3",
-    "@eslint/js": "^9.33.0",
-    "@types/jasmine": "~5.1.0",
-    "angular-eslint": "21.0.1",
-    "eslint": "^9.33.0",
-    "jasmine-core": "~5.9.0",
-    "karma": "~6.4.0",
-    "karma-chrome-launcher": "~3.2.0",
-    "karma-coverage": "~2.2.0",
-    "karma-jasmine": "~5.1.0",
-    "karma-jasmine-html-reporter": "~2.1.0",
-    "lefthook": "^1.12.3",
-    "prettier": "3.6.2",
-    "typescript": "~5.9.2",
-    "typescript-eslint": "8.40.0",
-    "yjs-types": "^0.0.1"
+    "@eslint/js": "catalog:",
+    "eslint": "catalog:",
+    "lefthook": "catalog:",
+    "prettier": "catalog:",
+    "typescript-eslint": "catalog:"
   },
-  "packageManager": "pnpm@10.29.3"
+  "engines": {
+    "node": ">=25"
+  },
+  "packageManager": "pnpm@10.30.3"
 }

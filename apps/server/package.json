@@ -1,0 +1,24 @@
+{
+  "name": "@ani-en/server",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ani-en/shared": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@types/ws": "catalog:",
+    "drizzle-kit": "catalog:",
+    "eslint": "catalog:",
+    "globals": "^17.4.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:"
+  }
+}

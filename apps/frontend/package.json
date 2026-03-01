@@ -1,0 +1,52 @@
+{
+  "name": "@ani-en/frontend",
+  "version": "0.0.1",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --host 127.0.0.1 --port 14201",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test",
+    "lint": "ng lint",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier . --write"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/common": "catalog:",
+    "@angular/compiler": "catalog:",
+    "@angular/core": "catalog:",
+    "@angular/forms": "catalog:",
+    "@angular/platform-browser": "catalog:",
+    "@angular/router": "catalog:",
+    "@ng-icons/core": "catalog:",
+    "@ng-icons/heroicons": "catalog:",
+    "angular-split": "catalog:",
+    "rxjs": "catalog:",
+    "tslib": "catalog:",
+    "y-indexeddb": "catalog:",
+    "yjs": "catalog:",
+    "zone.js": "catalog:"
+  },
+  "devDependencies": {
+    "@angular-eslint/builder": "catalog:",
+    "@angular/build": "catalog:",
+    "@angular/cli": "catalog:",
+    "@angular/compiler-cli": "catalog:",
+    "@eslint/js": "catalog:",
+    "@types/jasmine": "catalog:",
+    "angular-eslint": "catalog:",
+    "eslint": "catalog:",
+    "jasmine-core": "catalog:",
+    "karma": "catalog:",
+    "karma-chrome-launcher": "catalog:",
+    "karma-coverage": "catalog:",
+    "karma-jasmine": "catalog:",
+    "karma-jasmine-html-reporter": "catalog:",
+    "lefthook": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "yjs-types": "catalog:"
+  }
+}

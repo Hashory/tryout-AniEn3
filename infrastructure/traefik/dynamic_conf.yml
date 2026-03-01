@@ -1,0 +1,26 @@
+http:
+  routers:
+    main-front:
+      rule: 'Host(`main.preview.localhost`) && !PathPrefix(`/ws`)'
+      service: 'main-front-svc'
+    main-ws:
+      rule: 'Host(`main.preview.localhost`) && PathPrefix(`/ws`)'
+      service: 'main-ws-svc'
+      middlewares:
+        - 'strip-ws-prefix'
+
+  services:
+    main-front-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://host.docker.internal:14201'
+    main-ws-svc:
+      loadBalancer:
+        servers:
+          - url: 'http://host.docker.internal:14202'
+
+  middlewares:
+    strip-ws-prefix:
+      stripPrefix:
+        prefixes:
+          - '/ws'

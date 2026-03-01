@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - '--api.insecure=true'
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--providers.file.directory=/etc/traefik/dynamic'
+      - '--providers.file.watch=true'
+      - '--entryPoints.web.address=:80'
+    ports:
+      - '14204:80'
+      - '14205:8080' # Web UI
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+      - './traefik:/etc/traefik/dynamic:ro'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  garage:
+    image: dxflrs/garage:v0.9.4
+    container_name: garage
+    restart: unless-stopped
+    environment:
+      - GARAGE_RPC_SECRET=de605f72b7a02b72a366aabb29ebacd063ce1425f84befa35e279c16fc4c2316
+    volumes:
+      - ./garage-data:/var/lib/garage
+      - ./garage.toml:/etc/garage/garage.toml:ro
+    ports:
+      - '14203:14203' # S3 API
+    command: ['/garage', '-c', '/etc/garage/garage.toml', 'server']
+    labels:
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.garage.rule=Host(`storage.preview.localhost`)'
+      - 'traefik.http.services.garage.loadbalancer.server.port=14203'
