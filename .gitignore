@@ -46,3 +46,6 @@ Thumbs.db
 infrastructure/garage-data/
 infrastructure/acme.json
 apps/server/data/
+
+# Personal Contexts
+.personal_contexts/
