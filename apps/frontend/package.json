@@ -8,7 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "ngc -p tsconfig.app.json --noEmit",
     "format": "prettier . --write"
   },
   "private": true,
