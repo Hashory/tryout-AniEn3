@@ -1,3 +1,5 @@
+catalogMode: strict
+
 onlyBuiltDependencies:
   - '@parcel/watcher'
   - esbuild
