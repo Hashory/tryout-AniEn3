@@ -38,15 +38,12 @@
     "angular-eslint": "catalog:",
     "eslint": "catalog:",
     "jasmine-core": "catalog:",
-    "karma": "catalog:",
-    "karma-chrome-launcher": "catalog:",
-    "karma-coverage": "catalog:",
-    "karma-jasmine": "catalog:",
-    "karma-jasmine-html-reporter": "catalog:",
+    "jsdom": "catalog:",
     "lefthook": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
+    "vitest": "catalog:",
     "yjs-types": "catalog:"
   }
 }

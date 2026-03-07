@@ -18,12 +18,14 @@ catalog:
   '@ng-icons/heroicons': ^33.0.0
   '@types/jasmine': ~6.0.0
   '@types/ws': ^8.18.1
+  '@vitest/browser-playwright': ^4.0.18
   angular-eslint: ^21.3.0
   angular-split: ^20.0.0
   drizzle-kit: ^0.31.9
   drizzle-orm: ^0.45.1
   eslint: ^10.0.3
   jasmine-core: ~6.1.0
+  jsdom: ^28.1.0
   karma: ~6.4.0
   karma-chrome-launcher: ~3.2.0
   karma-coverage: ~2.2.0
@@ -36,6 +38,7 @@ catalog:
   tsx: ^4.19.2
   typescript: ~5.9.3
   typescript-eslint: 8.56.1
+  vitest: ^4.0.18
   ws: ^8.19.0
   y-indexeddb: ^9.0.12
   yjs: ^13.6.27
