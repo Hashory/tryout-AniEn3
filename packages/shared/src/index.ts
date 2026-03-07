@@ -1,4 +1,4 @@
-export type RoomMessage = {
+export interface RoomMessage {
   type: string;
   payload: unknown;
-};
+}

@@ -1,5 +1,6 @@
 import rootConfig from '../../eslint.config.mjs';
 import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
 export default [
   ...rootConfig,
@@ -13,8 +14,7 @@ export default [
   },
   {
     files: ['drizzle.config.ts'],
-    ...(rootConfig.find((config) => config.name === 'typescript-eslint/disable-type-checked') ||
-      {}),
+    ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       parserOptions: {
         projectService: false,
