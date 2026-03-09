@@ -5,6 +5,11 @@ import angular from 'angular-eslint';
 export default tseslint.config(
   {
     files: ['**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     extends: [
       eslint.configs.recommended,
       ...tseslint.configs.recommended,
