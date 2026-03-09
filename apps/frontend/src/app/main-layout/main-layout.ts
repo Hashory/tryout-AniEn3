@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { AngularSplitModule } from 'angular-split';
 import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.component';
+import { AnienMenuBarComponent } from './anien-menu-bar/anien-menu-bar.component';
 // import { TimelineComponent } from '../timeline/timeline.component';
 // import { PreviewComponent } from '../preview/preview.component';
 // import { NodeEditorComponent } from '../node-editor/node-editor.component';
@@ -11,9 +12,11 @@ import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.compone
   imports: [
     AngularSplitModule,
     AnienTimelineComponent,
+    AnienMenuBarComponent,
     // TimelineComponent, PreviewComponent, NodeEditorComponent
   ],
   template: `
+    <app-anien-menu-bar></app-anien-menu-bar>
     <div class="app-container">
       <as-split direction="vertical" style="height: 100%;">
         <as-split-area [size]="70">

@@ -13,6 +13,8 @@
   },
   "private": true,
   "dependencies": {
+    "@angular/aria": "catalog:",
+    "@angular/cdk": "catalog:",
     "@angular/common": "catalog:",
     "@angular/compiler": "catalog:",
     "@angular/core": "catalog:",

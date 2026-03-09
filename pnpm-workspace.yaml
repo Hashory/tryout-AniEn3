@@ -4,7 +4,9 @@ packages:
 
 catalog:
   '@angular-eslint/builder': 21.3.0
+  '@angular/aria': ^21.2.1
   '@angular/build': ^21.2.1
+  '@angular/cdk': ^21.2.1
   '@angular/cli': ^21.2.1
   '@angular/common': ^21.2.1
   '@angular/compiler': ^21.2.1
