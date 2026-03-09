@@ -1,8 +1,9 @@
-import { Component, inject } from '@angular/core';
-import { AngularSplitModule } from 'angular-split';
+import { Component, OnInit, inject } from '@angular/core';
+import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { AnienTimelineComponent } from '../../features/timeline/components/anien-timeline/anien-timeline.component';
 import { AnienMenuBarComponent } from './anien-menu-bar/anien-menu-bar.component';
 import { TimelineViewService } from '../../core/layout/timeline-view.service';
+import { LayoutPersistenceService } from '../../core/layout/layout-persistence.service';
 
 @Component({
   selector: 'app-main-layout',
@@ -11,18 +12,22 @@ import { TimelineViewService } from '../../core/layout/timeline-view.service';
   template: `
     <app-anien-menu-bar></app-anien-menu-bar>
     <div class="app-container">
-      <as-split direction="vertical" style="height: 100%;">
-        <as-split-area [size]="70">
-          <as-split direction="horizontal">
-            <as-split-area [size]="60">
+      <as-split
+        direction="vertical"
+        style="height: 100%;"
+        (dragEnd)="onMainVerticalDragEnd($event)"
+      >
+        <as-split-area [size]="mainVerticalSizes[0]">
+          <as-split direction="horizontal" (dragEnd)="onTopHorizontalDragEnd($event)">
+            <as-split-area [size]="topHorizontalSizes[0]">
               <div class="pane-content" style="border-radius: 0 8px 8px 8px;">Preview</div>
             </as-split-area>
-            <as-split-area [size]="40">
+            <as-split-area [size]="topHorizontalSizes[1]">
               <div class="pane-content" style="border-radius: 8px 0 8px 8px;">Node Editor</div>
             </as-split-area>
           </as-split>
         </as-split-area>
-        <as-split-area [size]="50">
+        <as-split-area [size]="mainVerticalSizes[1]">
           <div class="timeline-container">
             @if (viewService.scriptTimelineVisible()) {
               <div class="timeline-row script-row">
@@ -112,6 +117,42 @@ import { TimelineViewService } from '../../core/layout/timeline-view.service';
     `,
   ],
 })
-export class MainLayoutComponent {
+export class MainLayoutComponent implements OnInit {
   protected readonly viewService = inject(TimelineViewService);
+  private readonly layoutPersistence = inject(LayoutPersistenceService);
+
+  mainVerticalSizes: [number, number] = [70, 50];
+  topHorizontalSizes: [number, number] = [60, 40];
+
+  ngOnInit(): void {
+    const state = this.layoutPersistence.loadState();
+
+    if (state?.mainVertical && state.mainVertical.length === 2) {
+      this.mainVerticalSizes = [...state.mainVertical] as [number, number];
+    }
+
+    if (state?.topHorizontal && state.topHorizontal.length === 2) {
+      this.topHorizontalSizes = [...state.topHorizontal] as [number, number];
+    }
+  }
+
+  onMainVerticalDragEnd(event: SplitGutterInteractionEvent): void {
+    if (!event?.sizes || event.sizes.length < 2) {
+      return;
+    }
+
+    const numericSizes = event.sizes.map((size) => Number(size));
+    this.mainVerticalSizes = [numericSizes[0], numericSizes[1]];
+    this.layoutPersistence.saveState({ mainVertical: this.mainVerticalSizes });
+  }
+
+  onTopHorizontalDragEnd(event: SplitGutterInteractionEvent): void {
+    if (!event?.sizes || event.sizes.length < 2) {
+      return;
+    }
+
+    const numericSizes = event.sizes.map((size) => Number(size));
+    this.topHorizontalSizes = [numericSizes[0], numericSizes[1]];
+    this.layoutPersistence.saveState({ topHorizontal: this.topHorizontalSizes });
+  }
 }

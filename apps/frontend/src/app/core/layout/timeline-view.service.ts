@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { LayoutPersistenceService, TimelineLayoutState } from './layout-persistence.service';
 
 type TimelineKind = 'script' | 'video' | 'audio' | 'keyframe';
 
@@ -6,6 +7,8 @@ type TimelineKind = 'script' | 'video' | 'audio' | 'keyframe';
   providedIn: 'root',
 })
 export class TimelineViewService {
+  private readonly layoutPersistence = inject(LayoutPersistenceService);
+
   private readonly _scriptTimelineVisible = signal<boolean>(true);
   private readonly _videoTimelineVisible = signal<boolean>(true);
   private readonly _audioTimelineVisible = signal<boolean>(true);
@@ -15,6 +18,10 @@ export class TimelineViewService {
   readonly videoTimelineVisible = this._videoTimelineVisible.asReadonly();
   readonly audioTimelineVisible = this._audioTimelineVisible.asReadonly();
   readonly keyframeTimelineVisible = this._keyframeTimelineVisible.asReadonly();
+
+  constructor() {
+    this.restoreVisibilityFromStorage();
+  }
 
   toggleScriptTimeline(): void {
     this.toggle('script');
@@ -46,6 +53,54 @@ export class TimelineViewService {
       case 'keyframe':
         this._keyframeTimelineVisible.update((current) => !current);
         break;
+    }
+
+    const visibility: NonNullable<TimelineLayoutState['visibility']> = {
+      script: this._scriptTimelineVisible(),
+      video: this._videoTimelineVisible(),
+      audio: this._audioTimelineVisible(),
+      keyframe: this._keyframeTimelineVisible(),
+    };
+
+    this.layoutPersistence.saveState({ visibility });
+  }
+
+  private setVisibility(kind: TimelineKind, visible: boolean): void {
+    switch (kind) {
+      case 'script':
+        this._scriptTimelineVisible.set(visible);
+        break;
+      case 'video':
+        this._videoTimelineVisible.set(visible);
+        break;
+      case 'audio':
+        this._audioTimelineVisible.set(visible);
+        break;
+      case 'keyframe':
+        this._keyframeTimelineVisible.set(visible);
+        break;
+    }
+  }
+
+  private restoreVisibilityFromStorage(): void {
+    const state = this.layoutPersistence.loadState();
+    const visibility = state?.visibility;
+
+    if (!visibility) {
+      return;
+    }
+
+    if (typeof visibility.script === 'boolean') {
+      this.setVisibility('script', visibility.script);
+    }
+    if (typeof visibility.video === 'boolean') {
+      this.setVisibility('video', visibility.video);
+    }
+    if (typeof visibility.audio === 'boolean') {
+      this.setVisibility('audio', visibility.audio);
+    }
+    if (typeof visibility.keyframe === 'boolean') {
+      this.setVisibility('keyframe', visibility.keyframe);
     }
   }
 }
