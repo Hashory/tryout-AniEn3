@@ -2,17 +2,39 @@ import { Component, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MenuBar, Menu, MenuContent, MenuItem } from '@angular/aria/menu';
 import { OverlayModule } from '@angular/cdk/overlay';
+import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroCheckMicro } from '@ng-icons/heroicons/micro';
+import { AboutDialogComponent } from './about-dialog.component';
+import { inject } from '@angular/core';
 
 @Component({
   selector: 'app-anien-menu-bar',
   standalone: true,
-  imports: [CommonModule, MenuBar, Menu, MenuContent, MenuItem, OverlayModule, NgIcon],
+  imports: [
+    CommonModule,
+    MenuBar,
+    Menu,
+    MenuContent,
+    MenuItem,
+    OverlayModule,
+    NgIcon,
+    DialogModule,
+  ],
   template: `
     <div ngMenuBar class="anien-menubar" (focusin)="onFocusIn()">
       <!-- About -->
-      <div ngMenuItem class="menu-bar-item" value="About">About</div>
+      <div
+        ngMenuItem
+        class="menu-bar-item"
+        value="About"
+        tabindex="0"
+        (click)="openAbout()"
+        (keydown.enter)="openAbout()"
+        (keydown.space)="openAbout()"
+      >
+        About
+      </div>
 
       <!-- View -->
       <div
@@ -185,9 +207,16 @@ export class AnienMenuBarComponent {
   viewMenu = viewChild<Menu<string>>('viewMenu');
   workspaceMenu = viewChild<Menu<string>>('workspaceMenu');
 
+  private dialog = inject(Dialog);
   rendered = signal(false);
 
   onFocusIn() {
     this.rendered.set(true);
+  }
+
+  openAbout() {
+    this.dialog.open(AboutDialogComponent, {
+      minWidth: '300px',
+    });
   }
 }
