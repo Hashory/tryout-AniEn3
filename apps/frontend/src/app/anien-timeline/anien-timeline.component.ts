@@ -220,6 +220,11 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         border-radius: 5px;
         position: absolute;
         cursor: pointer;
+
+        /* prevent text overflow */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .timeline-main .strip .resize-handle,
@@ -256,8 +261,14 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         padding: 0 var(--timeline-strip-padding-x);
         border-radius: 10px 10px var(--timeline-folder-offset) var(--timeline-folder-offset);
         display: grid;
-        grid-template-columns: 20px auto 40px;
+        grid-template-columns: 20px minmax(0, 1fr) 40px;
         gap: 3px;
+      }
+
+      .timeline-main .folder .folder-header div:nth-child(2) {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .timeline-main .folder .folder-header.expanded {
