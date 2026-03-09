@@ -6,6 +6,7 @@ import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroCheckMicro } from '@ng-icons/heroicons/micro';
 import { AboutDialogComponent } from './about-dialog.component';
+import { TimelineViewService } from '../../../core/layout/timeline-view.service';
 
 @Component({
   selector: 'app-anien-menu-bar',
@@ -56,20 +57,64 @@ import { AboutDialogComponent } from './about-dialog.component';
       >
         <div ngMenu #viewMenu="ngMenu" class="anien-menu">
           <ng-template ngMenuContent>
-            <div ngMenuItem value="video clip timeline">
-              <ng-icon name="heroCheckMicro" class="check-icon"></ng-icon>
+            <div
+              ngMenuItem
+              value="video clip timeline"
+              tabindex="0"
+              (click)="toggleVideoTimeline()"
+              (keydown.enter)="toggleVideoTimeline()"
+              (keydown.space)="toggleVideoTimeline()"
+            >
+              <ng-icon
+                name="heroCheckMicro"
+                class="check-icon"
+                [style.visibility]="viewService.videoTimelineVisible() ? 'visible' : 'hidden'"
+              ></ng-icon>
               <span class="label">video clip timeline</span>
             </div>
-            <div ngMenuItem value="audio clip timeline">
-              <ng-icon name="heroCheckMicro" class="check-icon"></ng-icon>
+            <div
+              ngMenuItem
+              value="audio clip timeline"
+              tabindex="0"
+              (click)="toggleAudioTimeline()"
+              (keydown.enter)="toggleAudioTimeline()"
+              (keydown.space)="toggleAudioTimeline()"
+            >
+              <ng-icon
+                name="heroCheckMicro"
+                class="check-icon"
+                [style.visibility]="viewService.audioTimelineVisible() ? 'visible' : 'hidden'"
+              ></ng-icon>
               <span class="label">audio clip timeline</span>
             </div>
-            <div ngMenuItem value="script(subtitle) timeline">
-              <ng-icon name="heroCheckMicro" class="check-icon"></ng-icon>
+            <div
+              ngMenuItem
+              value="script(subtitle) timeline"
+              tabindex="0"
+              (click)="toggleScriptTimeline()"
+              (keydown.enter)="toggleScriptTimeline()"
+              (keydown.space)="toggleScriptTimeline()"
+            >
+              <ng-icon
+                name="heroCheckMicro"
+                class="check-icon"
+                [style.visibility]="viewService.scriptTimelineVisible() ? 'visible' : 'hidden'"
+              ></ng-icon>
               <span class="label">script(subtitle) timeline</span>
             </div>
-            <div ngMenuItem value="keyframe timeline">
-              <ng-icon name="heroCheckMicro" class="check-icon"></ng-icon>
+            <div
+              ngMenuItem
+              value="keyframe timeline"
+              tabindex="0"
+              (click)="toggleKeyframeTimeline()"
+              (keydown.enter)="toggleKeyframeTimeline()"
+              (keydown.space)="toggleKeyframeTimeline()"
+            >
+              <ng-icon
+                name="heroCheckMicro"
+                class="check-icon"
+                [style.visibility]="viewService.keyframeTimelineVisible() ? 'visible' : 'hidden'"
+              ></ng-icon>
               <span class="label">keyframe timeline</span>
             </div>
           </ng-template>
@@ -207,6 +252,7 @@ export class AnienMenuBarComponent {
   workspaceMenu = viewChild<Menu<string>>('workspaceMenu');
 
   private dialog = inject(Dialog);
+  protected readonly viewService = inject(TimelineViewService);
   rendered = signal(false);
 
   onFocusIn() {
@@ -217,5 +263,21 @@ export class AnienMenuBarComponent {
     this.dialog.open(AboutDialogComponent, {
       minWidth: '300px',
     });
+  }
+
+  toggleScriptTimeline(): void {
+    this.viewService.toggleScriptTimeline();
+  }
+
+  toggleVideoTimeline(): void {
+    this.viewService.toggleVideoTimeline();
+  }
+
+  toggleAudioTimeline(): void {
+    this.viewService.toggleAudioTimeline();
+  }
+
+  toggleKeyframeTimeline(): void {
+    this.viewService.toggleKeyframeTimeline();
   }
 }
