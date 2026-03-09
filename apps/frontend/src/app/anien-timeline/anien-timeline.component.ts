@@ -5,6 +5,8 @@ import {
   computed,
   ChangeDetectorRef,
   NgZone,
+  ViewChild,
+  ElementRef,
 } from '@angular/core';
 import { TimelineStateService, StripVM, FolderVM } from './anien-timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
@@ -14,8 +16,23 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
   selector: 'app-anien-timeline',
   template: `
     <div class="timeline-header">
-      <button (click)="addTrack()">+</button>
-      <div class="timeline-ruller" style="color:white;">Ruller Here</div>
+      <button class="add-track-btn" (click)="addTrack()">+</button>
+      <div class="ruler-wrapper" #rulerWrapper (mousedown)="onRulerMouseDown($event)">
+        <div class="ruler-track" [style.width]="'calc(var(--timeline-frame-size) * 1000)'">
+          @for (tick of rulerTicks; track tick) {
+            <div
+              class="ruler-label"
+              [style.left]="'calc(var(--timeline-frame-size) * ' + tick + ')'"
+            >
+              {{ tick }}
+            </div>
+          }
+          <div
+            class="playhead-handle"
+            [style.left]="'calc(var(--timeline-frame-size) * ' + currentFrame() + ')'"
+          ></div>
+        </div>
+      </div>
     </div>
     <div
       class="timeline-sidebar"
@@ -25,7 +42,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       (keydown.space)="onBackgroundKeydown($event)"
     ></div>
 
-    <div class="timeline-main-wrapper">
+    <div class="timeline-main-wrapper" #mainWrapper (scroll)="onMainScroll($event)">
       <div
         class="timeline-main"
         [style.width]="'calc(var(--timeline-frame-size) * 1000)'"
@@ -35,6 +52,10 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         (keydown.enter)="onBackgroundKeydown($event)"
         (keydown.space)="onBackgroundKeydown($event)"
       >
+        <div
+          class="playhead-line"
+          [style.left]="'calc(var(--timeline-frame-size) * ' + currentFrame() + ')'"
+        ></div>
         @for (item of timelineItems(); track item.id; let i = $index) {
           @if (item.type === 'strip') {
             <div
@@ -183,6 +204,83 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
 
         display: grid;
         grid-template-columns: var(--timeline-sidebar-width) auto;
+        background-color: #1e2226;
+        border-bottom: 1px solid #101417;
+      }
+
+      .timeline-header .add-track-btn {
+        background: transparent;
+        border: none;
+        color: #9aa3b5;
+        cursor: pointer;
+      }
+      .timeline-header .add-track-btn:hover {
+        color: white;
+      }
+
+      .ruler-wrapper {
+        overflow: hidden;
+        position: relative;
+        cursor: text;
+        user-select: none;
+      }
+
+      .ruler-track {
+        height: 100%;
+        position: relative;
+        background-image:
+          repeating-linear-gradient(
+            to right,
+            transparent,
+            transparent calc(var(--timeline-frame-size) * 30 - 1px),
+            #666 calc(var(--timeline-frame-size) * 30 - 1px),
+            #666 calc(var(--timeline-frame-size) * 30)
+          ),
+          repeating-linear-gradient(
+            to right,
+            transparent,
+            transparent calc(var(--timeline-frame-size) * 10 - 1px),
+            #444 calc(var(--timeline-frame-size) * 10 - 1px),
+            #444 calc(var(--timeline-frame-size) * 10)
+          );
+        background-size:
+          100% 12px,
+          100% 6px;
+        background-position:
+          bottom left,
+          bottom left;
+        background-repeat: repeat-x, repeat-x;
+      }
+
+      .ruler-label {
+        position: absolute;
+        bottom: 12px;
+        font-size: 10px;
+        color: #888;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      .playhead-handle {
+        position: absolute;
+        bottom: 0;
+        width: 11px;
+        height: 11px;
+        background-color: #ff3333;
+        transform: translateX(-2px);
+        clip-path: polygon(0 0, 100% 0, 50% 100%);
+        z-index: 30001;
+        pointer-events: none;
+      }
+
+      .timeline-main .playhead-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background-color: #ff3333;
+        z-index: 30000;
+        pointer-events: none;
       }
 
       .timeline-sidebar {
@@ -366,6 +464,14 @@ export class AnienTimelineComponent {
   public readonly timelineName = this.stateService.timelineName;
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
+  public readonly currentFrame = this.stateService.currentFrame;
+
+  public readonly rulerTicks = Array.from({ length: Math.floor(1000 / 30) + 1 }, (_, i) => i * 30);
+
+  @ViewChild('mainWrapper') mainWrapperRef?: ElementRef<HTMLDivElement>;
+  @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
+
+  private rulerDragState: { isDragging: boolean; startX: number } | null = null;
 
   private readonly FRAME_SIZE = 2; // Must match CSS --timeline-frame-size
 
@@ -616,6 +722,48 @@ export class AnienTimelineComponent {
     event.preventDefault();
     this.stateService.clearSelection();
     this.requestRender();
+  }
+
+  public onMainScroll(event: Event): void {
+    const target = event.target as HTMLDivElement;
+    if (this.rulerWrapperRef) {
+      this.rulerWrapperRef.nativeElement.scrollLeft = target.scrollLeft;
+    }
+  }
+
+  public onRulerMouseDown(event: MouseEvent): void {
+    this.rulerDragState = { isDragging: true, startX: event.clientX };
+    this.updateFrameFromMouse(event);
+    window.addEventListener('mousemove', this.onRulerMouseMove);
+    window.addEventListener('mouseup', this.onRulerMouseUp);
+  }
+
+  private onRulerMouseMove = (event: MouseEvent) => {
+    if (this.rulerDragState?.isDragging) {
+      this.updateFrameFromMouse(event);
+    }
+  };
+
+  private onRulerMouseUp = () => {
+    if (this.rulerDragState) {
+      this.rulerDragState = null;
+      window.removeEventListener('mousemove', this.onRulerMouseMove);
+      window.removeEventListener('mouseup', this.onRulerMouseUp);
+    }
+  };
+
+  private updateFrameFromMouse(event: MouseEvent) {
+    if (!this.rulerWrapperRef) return;
+    const rulerRect = this.rulerWrapperRef.nativeElement.getBoundingClientRect();
+    const scrollLeft = this.rulerWrapperRef.nativeElement.scrollLeft;
+
+    // Relative to the start of the ruler track
+    const offsetX = event.clientX - rulerRect.left + scrollLeft;
+
+    let frame = Math.round(offsetX / this.FRAME_SIZE);
+    frame = Math.max(0, Math.min(frame, 1000)); // Clamp to 0-1000
+
+    this.stateService.setFrame(frame);
   }
 
   private requestRender(): void {
