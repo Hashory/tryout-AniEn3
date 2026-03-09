@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as Y from 'yjs';
-import { IndexeddbPersistence } from 'y-indexeddb';
+import { HocuspocusProvider } from '@hocuspocus/provider';
 import {
   FlatTimelineSnapshot,
   Folder,
@@ -72,7 +72,7 @@ interface ItemLocation {
 })
 export class YjsTimelineService {
   private readonly doc: Y.Doc;
-  private readonly indexeddbProvider: IndexeddbPersistence;
+  private readonly hocuspocusProvider: HocuspocusProvider;
   private readonly broadcastChannel: BroadcastChannel;
 
   private readonly yRoot: Y.Map<unknown>;
@@ -85,7 +85,12 @@ export class YjsTimelineService {
   constructor() {
     this.doc = new Y.Doc();
 
-    this.indexeddbProvider = new IndexeddbPersistence('anien-timeline-db', this.doc);
+    this.hocuspocusProvider = new HocuspocusProvider({
+      url: 'ws://127.0.0.1:14202',
+      name: 'dev-anien',
+      document: this.doc,
+    });
+
     this.broadcastChannel = new BroadcastChannel('anien-timeline-broadcast-channel');
 
     this.yRoot = this.doc.getMap('timelineRoot');
@@ -100,7 +105,7 @@ export class YjsTimelineService {
     this.yFolderTracks.observeDeep(handleSnapshotUpdate);
     this.yRoot.observe(handleSnapshotUpdate);
 
-    this.indexeddbProvider.whenSynced.then(() => {
+    this.hocuspocusProvider.on('synced', () => {
       this.ensureFlatSchema();
       this.publishSnapshot(this.buildSnapshot());
     });

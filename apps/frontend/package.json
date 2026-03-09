@@ -19,12 +19,12 @@
     "@angular/forms": "catalog:",
     "@angular/platform-browser": "catalog:",
     "@angular/router": "catalog:",
+    "@hocuspocus/provider": "catalog:",
     "@ng-icons/core": "catalog:",
     "@ng-icons/heroicons": "catalog:",
     "angular-split": "catalog:",
     "rxjs": "catalog:",
     "tslib": "catalog:",
-    "y-indexeddb": "catalog:",
     "yjs": "catalog:",
     "zone.js": "catalog:"
   },
