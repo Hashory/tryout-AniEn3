@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { MainLayoutComponent } from './main-layout';
+import { MainLayoutComponent } from './main-layout.component';
 
-describe('MainLayout', () => {
+describe('MainLayoutComponent', () => {
   let component: MainLayoutComponent;
   let fixture: ComponentFixture<MainLayoutComponent>;
 

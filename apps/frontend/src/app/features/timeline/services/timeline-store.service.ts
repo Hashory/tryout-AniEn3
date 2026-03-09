@@ -1,6 +1,6 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
 import {
   FlatTimelineSnapshot,
   Folder,
@@ -12,7 +12,7 @@ import {
   YFolderTracksMap,
   YTrackIdList,
   YTrackList,
-} from './anien-timeline.types';
+} from '../models/timeline.types';
 
 interface TimelineUpdateMessage {
   type: 'timeline-update';
@@ -71,8 +71,9 @@ interface ItemLocation {
   providedIn: 'root',
 })
 export class YjsTimelineService {
+  private readonly collab = inject(YjsDocumentService);
+
   private readonly doc: Y.Doc;
-  private readonly hocuspocusProvider: HocuspocusProvider;
   private readonly broadcastChannel: BroadcastChannel;
 
   private readonly yRoot: Y.Map<unknown>;
@@ -83,15 +84,8 @@ export class YjsTimelineService {
   private readonly timelineSubscribers = new Set<(snapshot: FlatTimelineSnapshot | null) => void>();
 
   constructor() {
-    this.doc = new Y.Doc();
-
-    this.hocuspocusProvider = new HocuspocusProvider({
-      url: 'ws://127.0.0.1:14202',
-      name: 'dev-anien',
-      document: this.doc,
-    });
-
-    this.broadcastChannel = new BroadcastChannel('anien-timeline-broadcast-channel');
+    this.doc = this.collab.getDoc();
+    this.broadcastChannel = this.collab.getBroadcastChannel('anien-timeline-broadcast-channel');
 
     this.yRoot = this.doc.getMap('timelineRoot');
     this.yEntities = this.doc.getMap('timelineEntities') as YEntitiesMap;
@@ -105,7 +99,7 @@ export class YjsTimelineService {
     this.yFolderTracks.observeDeep(handleSnapshotUpdate);
     this.yRoot.observe(handleSnapshotUpdate);
 
-    this.hocuspocusProvider.on('synced', () => {
+    this.collab.onSynced(() => {
       this.ensureFlatSchema();
       this.publishSnapshot(this.buildSnapshot());
     });

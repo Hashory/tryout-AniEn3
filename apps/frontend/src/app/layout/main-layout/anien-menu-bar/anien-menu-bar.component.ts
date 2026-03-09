@@ -1,4 +1,4 @@
-import { Component, signal, viewChild } from '@angular/core';
+import { Component, signal, viewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MenuBar, Menu, MenuContent, MenuItem } from '@angular/aria/menu';
 import { OverlayModule } from '@angular/cdk/overlay';
@@ -6,7 +6,6 @@ import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroCheckMicro } from '@ng-icons/heroicons/micro';
 import { AboutDialogComponent } from './about-dialog.component';
-import { inject } from '@angular/core';
 
 @Component({
   selector: 'app-anien-menu-bar',

@@ -7,10 +7,8 @@ import {
   FolderUpdateInput,
   MoveTargetInput,
   DeleteItemOptions,
-} from './anien-timeline-store.service';
-import { FlatTimelineSnapshot, Folder, Strip } from './anien-timeline.types';
-
-// ViewModel types augment the domain model with UI-specific state.
+} from './timeline-store.service';
+import { FlatTimelineSnapshot, Folder, Strip } from '../models/timeline.types';
 
 export interface StripVM extends Strip {
   isSelected: boolean;
@@ -43,24 +41,18 @@ interface MapContext {
   providedIn: 'root',
 })
 export class TimelineStateService {
-  // Inject model service
   private readonly yjsService = inject(YjsTimelineService);
   private readonly destroyRef = inject(DestroyRef);
 
-  // Subscribe to model changes (plain JS snapshot provided by the Yjs store)
   private readonly model = signal<FlatTimelineSnapshot | null>(null);
 
-  // UI State Signals
   private readonly _currentFrame = signal<number>(0);
   private readonly _selectedItemIds = signal<Set<string>>(new Set<string>());
   private readonly _zoomLevel = signal<number>(1);
 
-  // Expose read-only signals
   public readonly currentFrame = this._currentFrame.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
-
-  // Derived timeline items exposed to consuming components.
 
   public readonly timelineItems: Signal<TimelineItemVM[]> = computed(() => {
     const snapshot = this.model();
@@ -139,14 +131,12 @@ export class TimelineStateService {
     return items;
   });
 
-  // Expose the root folder name via a read-only signal.
   public readonly timelineName = computed(() => {
     const snapshot = this.model();
     const rootEntity = snapshot?.entities[snapshot?.rootId ?? ''];
     return rootEntity?.type === 'folder' ? rootEntity.name : 'Loading...';
   });
 
-  // View intents update local UI state and delegate to the store as needed.
   public setFrame(frame: number): void {
     this._currentFrame.set(frame);
   }
@@ -274,7 +264,6 @@ export class TimelineStateService {
     if (updates.name !== undefined) {
       const currentSelection = this._selectedItemIds();
       if (currentSelection.has(itemId)) {
-        // trigger signal update so bindings refresh when the name changes while selected
         this._selectedItemIds.set(new Set(currentSelection));
       }
     }
@@ -306,7 +295,7 @@ export class TimelineStateService {
       }
     }
 
-    this.removeSelectionAndExpansion(idsToClear);
+    this.removeSelection(idsToClear);
     return true;
   }
 
@@ -452,7 +441,7 @@ export class TimelineStateService {
     return collected;
   }
 
-  private removeSelectionAndExpansion(ids: Iterable<string>): void {
+  private removeSelection(ids: Iterable<string>): void {
     const removalIds = Array.from(ids);
     if (!removalIds.length) {
       return;

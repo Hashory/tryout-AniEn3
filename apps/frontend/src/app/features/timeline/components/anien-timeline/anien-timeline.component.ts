@@ -8,7 +8,7 @@ import {
   ViewChild,
   ElementRef,
 } from '@angular/core';
-import { TimelineStateService, StripVM, FolderVM } from './anien-timeline-state.service';
+import { TimelineStateService, StripVM, FolderVM } from '../../services/timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
 

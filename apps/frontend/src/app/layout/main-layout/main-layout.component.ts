@@ -1,20 +1,12 @@
 import { Component } from '@angular/core';
 import { AngularSplitModule } from 'angular-split';
-import { AnienTimelineComponent } from '../anien-timeline/anien-timeline.component';
+import { AnienTimelineComponent } from '../../features/timeline/components/anien-timeline/anien-timeline.component';
 import { AnienMenuBarComponent } from './anien-menu-bar/anien-menu-bar.component';
-// import { TimelineComponent } from '../timeline/timeline.component';
-// import { PreviewComponent } from '../preview/preview.component';
-// import { NodeEditorComponent } from '../node-editor/node-editor.component';
 
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [
-    AngularSplitModule,
-    AnienTimelineComponent,
-    AnienMenuBarComponent,
-    // TimelineComponent, PreviewComponent, NodeEditorComponent
-  ],
+  imports: [AngularSplitModule, AnienTimelineComponent, AnienMenuBarComponent],
   template: `
     <app-anien-menu-bar></app-anien-menu-bar>
     <div class="app-container">
