@@ -8,7 +8,7 @@ Based tech by Angular and Hocuspocus.
 Run these commands.
 
 ```
-pnpm run fomrat
+pnpm run format
 pnpm run lint
 pnpm run typecheck
 ```
