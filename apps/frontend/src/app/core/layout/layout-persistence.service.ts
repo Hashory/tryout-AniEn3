@@ -1,17 +1,17 @@
 import { Injectable } from '@angular/core';
 
-type TimelineVisibilityState = {
+interface TimelineVisibilityState {
   script: boolean;
   video: boolean;
   audio: boolean;
   keyframe: boolean;
-};
+}
 
-export type TimelineLayoutState = {
+export interface TimelineLayoutState {
   visibility?: TimelineVisibilityState;
   mainVertical?: [number, number];
   topHorizontal?: [number, number];
-};
+}
 
 const STORAGE_KEY = 'anien.layout.v1';
 
