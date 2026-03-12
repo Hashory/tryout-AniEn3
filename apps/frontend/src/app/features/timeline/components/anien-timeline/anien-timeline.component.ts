@@ -1,16 +1,16 @@
 import {
-  Component,
-  inject,
   ChangeDetectionStrategy,
-  computed,
   ChangeDetectorRef,
+  Component,
+  ElementRef,
   NgZone,
   ViewChild,
-  ElementRef,
+  computed,
+  inject,
 } from '@angular/core';
-import { TimelineStateService, StripVM, FolderVM } from '../../services/timeline-state.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/micro';
+import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
+import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
 
 @Component({
   selector: 'app-anien-timeline',
@@ -18,22 +18,23 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
     <div class="timeline-header">
       <button class="add-track-btn" (click)="addTrack()">+</button>
       <div class="ruler-wrapper" #rulerWrapper (mousedown)="onRulerMouseDown($event)">
-        <div class="ruler-track" [style.width]="'calc(var(--timeline-frame-size) * 1000)'">
-          @for (tick of rulerTicks; track tick) {
+        <div class="ruler-track" [style.width]="timelineWidthStyle()">
+          @for (tick of rulerTicks(); track tick) {
             <div
               class="ruler-label"
-              [style.left]="'calc(var(--timeline-frame-size) * ' + tick + ')'"
+              [style.left]="'calc(var(--timeline-tick-size) * ' + tick + ')'"
             >
               {{ tick }}
             </div>
           }
           <div
             class="playhead-handle"
-            [style.left]="'calc(var(--timeline-frame-size) * ' + currentFrame() + ')'"
+            [style.left]="'calc(var(--timeline-tick-size) * ' + currentTick() + ')'"
           ></div>
         </div>
       </div>
     </div>
+
     <div
       class="timeline-sidebar"
       tabindex="0"
@@ -45,8 +46,8 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
     <div class="timeline-main-wrapper" #mainWrapper (scroll)="onMainScroll($event)">
       <div
         class="timeline-main"
-        [style.width]="'calc(var(--timeline-frame-size) * 1000)'"
-        [style.height]="'calc(var(--timeline-track-height) * ' + 100 + ')'"
+        [style.width]="timelineWidthStyle()"
+        [style.height]="timelineHeightStyle()"
         tabindex="0"
         (click)="onBackgroundClick($event)"
         (keydown.enter)="onBackgroundKeydown($event)"
@@ -54,21 +55,22 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       >
         <div
           class="playhead-line"
-          [style.left]="'calc(var(--timeline-frame-size) * ' + currentFrame() + ')'"
+          [style.left]="'calc(var(--timeline-tick-size) * ' + currentTick() + ')'"
         ></div>
-        @for (item of timelineItems(); track item.id; let i = $index) {
+
+        @for (item of timelineItems(); track item.id) {
           @if (item.type === 'strip') {
             <div
               class="strip"
               tabindex="0"
-              [style.display]="item.isParentFolderVisible ? 'block' : 'none'"
-              [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
+              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
+              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ' - 8px)'"
               [style.top]="
                 'calc(' +
-                item.trackOrder +
+                item.absoluteStartRow +
                 ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + item.absoluteStartFrame + ')'"
+              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -78,7 +80,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
                 class="resize-handle left"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
               ></div>
-              {{ item.source }}
+              {{ item.sourceName }}
               <div
                 class="resize-handle right"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
@@ -88,13 +90,14 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
             <div
               class="folder"
               tabindex="0"
-              [style.width]="'calc(var(--timeline-frame-size) * ' + item.length + ')'"
+              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
+              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ')'"
               [style.top]="
                 'calc(' +
-                item.trackOrder +
+                item.absoluteStartRow +
                 ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
               "
-              [style.left]="'calc(var(--timeline-frame-size) * ' + item.absoluteStartFrame + ')'"
+              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -115,12 +118,8 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
               </div>
               <div
                 class="folder-content-holder"
-                [style.display]="item.isExpanded && item.isParentFolderVisible ? 'block' : 'none'"
-                [style.height]="
-                  'calc(' +
-                  item.trackLength +
-                  ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
-                "
+                [style.display]="item.isExpanded ? 'block' : 'none'"
+                [style.height]="'calc(' + item.bodyTrackCount + ' * var(--timeline-track-height))'"
               ></div>
               <div
                 class="resize-handle right"
@@ -129,7 +128,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
             </div>
           }
         } @empty {
-          <div class="empty-state">No tracks yet.</div>
+          <div class="empty-state">No timeline items yet.</div>
         }
       </div>
     </div>
@@ -143,22 +142,22 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       <div class="actions-label">Selection Actions</div>
       <div class="actions-group">
         <button type="button" (click)="shiftSelection(-1)" [disabled]="!hasSelection()">
-          Move -1 frame
+          Move -1 tick
         </button>
         <button type="button" (click)="shiftSelection(1)" [disabled]="!hasSelection()">
-          Move +1 frame
+          Move +1 tick
         </button>
         <button type="button" (click)="shiftSelection(-10)" [disabled]="!hasSelection()">
-          Move -10 frames
+          Move -10 ticks
         </button>
         <button type="button" (click)="shiftSelection(10)" [disabled]="!hasSelection()">
-          Move +10 frames
+          Move +10 ticks
         </button>
-        <button type="button" (click)="adjustSelectionLength(-1)" [disabled]="!hasSelection()">
-          Shorten -1 frame
+        <button type="button" (click)="adjustSelectionDuration(-1)" [disabled]="!hasSelection()">
+          Shorten -1 tick
         </button>
-        <button type="button" (click)="adjustSelectionLength(1)" [disabled]="!hasSelection()">
-          Extend +1 frame
+        <button type="button" (click)="adjustSelectionDuration(1)" [disabled]="!hasSelection()">
+          Extend +1 tick
         </button>
         <button type="button" (click)="deleteSelected()" [disabled]="!hasSelection()">
           Delete Selected
@@ -173,25 +172,21 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       }
 
       :host {
-        /* variables */
-        --timeline-frame-size: 2px;
+        --timeline-tick-size: 2px;
         --timeline-track-height: 34px;
         --timeline-sidebar-width: 33px;
         --timeline-grid-gap: 3px;
-        --timeline-strip-height: 26px;
         --timeline-strip-padding-x: 9px;
         --timeline-strip-offset: 2px;
         --timeline-background-stripe-height: 30px;
         --timeline-folder-offset: 4px;
         --timeline-folder-content-stripe-height: 4px;
 
-        /* layout */
-        display: block;
-        background: #101417;
+        display: grid;
         width: 100%;
         height: 100%;
-        border-radius: 8px 8px 0px 0px;
-        display: grid;
+        background: #101417;
+        border-radius: 8px 8px 0 0;
         grid-template-rows: 25px auto;
         grid-template-columns: var(--timeline-sidebar-width) auto;
         column-gap: var(--timeline-grid-gap);
@@ -201,7 +196,6 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       .timeline-header {
         grid-column: 1 / span 2;
         grid-row: 1 / 2;
-
         display: grid;
         grid-template-columns: var(--timeline-sidebar-width) auto;
         background-color: #1e2226;
@@ -214,6 +208,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         color: #9aa3b5;
         cursor: pointer;
       }
+
       .timeline-header .add-track-btn:hover {
         color: white;
       }
@@ -232,16 +227,16 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
           repeating-linear-gradient(
             to right,
             transparent,
-            transparent calc(var(--timeline-frame-size) * 30 - 1px),
-            #666 calc(var(--timeline-frame-size) * 30 - 1px),
-            #666 calc(var(--timeline-frame-size) * 30)
+            transparent calc(var(--timeline-tick-size) * 30 - 1px),
+            #666 calc(var(--timeline-tick-size) * 30 - 1px),
+            #666 calc(var(--timeline-tick-size) * 30)
           ),
           repeating-linear-gradient(
             to right,
             transparent,
-            transparent calc(var(--timeline-frame-size) * 10 - 1px),
-            #444 calc(var(--timeline-frame-size) * 10 - 1px),
-            #444 calc(var(--timeline-frame-size) * 10)
+            transparent calc(var(--timeline-tick-size) * 10 - 1px),
+            #444 calc(var(--timeline-tick-size) * 10 - 1px),
+            #444 calc(var(--timeline-tick-size) * 10)
           );
         background-size:
           100% 12px,
@@ -275,8 +270,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
 
       .timeline-main .playhead-line {
         position: absolute;
-        top: 0;
-        bottom: 0;
+        inset: 0 auto 0 0;
         width: 1px;
         background-color: #ff3333;
         z-index: 30000;
@@ -296,6 +290,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       }
 
       .timeline-main {
+        position: relative;
         background-color: #0b0f12;
         background-image: repeating-linear-gradient(
           to bottom,
@@ -304,13 +299,10 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
           #0b0f12 var(--timeline-background-stripe-height),
           #0b0f12 var(--timeline-track-height)
         );
-
-        position: relative;
       }
 
       .timeline-main .strip {
         z-index: 20000;
-        height: var(--timeline-strip-height);
         background-color: #024b71;
         color: #cbe6ff;
         align-content: center;
@@ -318,8 +310,6 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         border-radius: 5px;
         position: absolute;
         cursor: pointer;
-
-        /* prevent text overflow */
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -334,10 +324,12 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
         cursor: col-resize;
         z-index: 20001;
       }
+
       .timeline-main .strip .resize-handle.left,
       .timeline-main .folder .resize-handle.left {
         left: 0;
       }
+
       .timeline-main .strip .resize-handle.right,
       .timeline-main .folder .resize-handle.right {
         right: 0;
@@ -352,7 +344,7 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
       }
 
       .timeline-main .folder .folder-header {
-        height: var(--timeline-strip-height);
+        min-height: calc(var(--timeline-track-height) - 8px);
         background-color: #437836;
         color: #e0e3e8;
         align-content: center;
@@ -451,7 +443,6 @@ import { heroFolderMicro, heroChevronUpDownMicro } from '@ng-icons/heroicons/mic
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  standalone: true,
   imports: [NgIcon],
   viewProviders: [provideIcons({ heroFolderMicro, heroChevronUpDownMicro })],
 })
@@ -461,28 +452,36 @@ export class AnienTimelineComponent {
   private readonly ngZone = inject(NgZone);
 
   public readonly timelineItems = this.stateService.timelineItems;
+  public readonly timelineRows = this.stateService.timelineRows;
+  public readonly timelineExtentTicks = this.stateService.timelineExtentTicks;
   public readonly timelineName = this.stateService.timelineName;
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
-  public readonly currentFrame = this.stateService.currentFrame;
-
-  public readonly rulerTicks = Array.from({ length: Math.floor(1000 / 30) + 1 }, (_, i) => i * 30);
+  public readonly currentTick = this.stateService.currentTick;
+  public readonly rulerTicks = computed(() => {
+    const extent = this.timelineExtentTicks();
+    return Array.from({ length: Math.floor(extent / 30) + 1 }, (_, index) => index * 30);
+  });
+  public readonly timelineWidthStyle = computed(
+    () => 'calc(var(--timeline-tick-size) * ' + this.timelineExtentTicks() + ')',
+  );
+  public readonly timelineHeightStyle = computed(
+    () => 'calc(var(--timeline-track-height) * ' + this.timelineRows() + ')',
+  );
 
   @ViewChild('mainWrapper') mainWrapperRef?: ElementRef<HTMLDivElement>;
   @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
 
-  private rulerDragState: { isDragging: boolean; startX: number } | null = null;
-
-  private readonly FRAME_SIZE = 2; // Must match CSS --timeline-frame-size
+  private readonly TICK_SIZE = 2;
 
   private dragState: {
     type: 'move' | 'resize-left' | 'resize-right';
     itemId: string;
     itemType: 'strip' | 'folder';
     startX: number;
-    initialStartFrame: number;
-    initialLength: number;
-    appliedDeltaFrames: number;
+    initialStartTick: number;
+    initialDurationTicks: number;
+    appliedDeltaTicks: number;
   } | null = null;
 
   private mouseDownState: {
@@ -491,6 +490,7 @@ export class AnienTimelineComponent {
     event: MouseEvent;
   } | null = null;
 
+  private rulerDragState: { isDragging: boolean; startX: number } | null = null;
   private renderFrameId: number | null = null;
   private detachRenderId: number | null = null;
 
@@ -506,17 +506,6 @@ export class AnienTimelineComponent {
     this.stateService.createFolder();
   }
 
-  public onItemClick(event: MouseEvent, itemId: string): void {
-    // Handled by mousedown/mouseup logic for strips, but kept for folders
-    const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
-    if (event.shiftKey) {
-      this.stateService.selectItem(itemId, true);
-      return;
-    }
-
-    this.stateService.selectItem(itemId, isMultiSelect);
-  }
-
   public onItemMouseDown(event: MouseEvent, item: StripVM | FolderVM): void {
     this.mouseDownState = {
       startX: event.clientX,
@@ -525,7 +514,6 @@ export class AnienTimelineComponent {
     };
 
     this.startZoneLessDragLoop();
-
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
   }
@@ -539,19 +527,17 @@ export class AnienTimelineComponent {
     event.preventDefault();
 
     this.stateService.selectItem(item.id, false);
-
     this.dragState = {
       type: side === 'left' ? 'resize-left' : 'resize-right',
       itemId: item.id,
       itemType: item.type,
       startX: event.clientX,
-      initialStartFrame: item.startFrame,
-      initialLength: item.length,
-      appliedDeltaFrames: 0,
+      initialStartTick: item.startTick,
+      initialDurationTicks: item.durationTicks,
+      appliedDeltaTicks: 0,
     };
 
     this.startZoneLessDragLoop();
-
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
   }
@@ -559,19 +545,25 @@ export class AnienTimelineComponent {
   private onWindowMouseMove = (event: MouseEvent) => {
     if (this.dragState) {
       this.handleDrag(event);
-    } else if (this.mouseDownState) {
-      const deltaX = Math.abs(event.clientX - this.mouseDownState.startX);
-      if (deltaX > 3) {
-        this.startMoveDrag();
-      }
+      return;
+    }
+
+    if (!this.mouseDownState) {
+      return;
+    }
+
+    const deltaX = Math.abs(event.clientX - this.mouseDownState.startX);
+    if (deltaX > 3) {
+      this.startMoveDrag();
     }
   };
 
-  private startMoveDrag() {
-    if (!this.mouseDownState) return;
+  private startMoveDrag(): void {
+    if (!this.mouseDownState) {
+      return;
+    }
 
     const { item, event } = this.mouseDownState;
-
     const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
     if (!item.isSelected) {
       this.stateService.selectItem(item.id, isMultiSelect);
@@ -582,92 +574,101 @@ export class AnienTimelineComponent {
       itemId: item.id,
       itemType: item.type,
       startX: this.mouseDownState.startX,
-      initialStartFrame: item.startFrame,
-      initialLength: item.length,
-      appliedDeltaFrames: 0,
+      initialStartTick: item.startTick,
+      initialDurationTicks: item.durationTicks,
+      appliedDeltaTicks: 0,
     };
-
     this.mouseDownState = null;
   }
 
-  private handleDrag(event: MouseEvent) {
-    if (!this.dragState) return;
+  private handleDrag(event: MouseEvent): void {
+    if (!this.dragState) {
+      return;
+    }
 
     const deltaPixels = event.clientX - this.dragState.startX;
-    const currentDeltaFrames = Math.round(deltaPixels / this.FRAME_SIZE);
-    const diffFrames = currentDeltaFrames - this.dragState.appliedDeltaFrames;
-
-    if (diffFrames === 0) return;
+    const currentDeltaTicks = Math.round(deltaPixels / this.TICK_SIZE);
+    const diffTicks = currentDeltaTicks - this.dragState.appliedDeltaTicks;
+    if (diffTicks === 0) {
+      return;
+    }
 
     if (this.dragState.type === 'move') {
-      const nextStartFrame = this.dragState.initialStartFrame + currentDeltaFrames;
-      const targetStart = Math.max(0, nextStartFrame);
+      const targetStartTick = Math.max(0, this.dragState.initialStartTick + currentDeltaTicks);
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, { startFrame: targetStart });
+        this.stateService.updateStrip(this.dragState.itemId, { startTick: targetStartTick });
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, { startFrame: targetStart });
+        this.stateService.updateFolder(this.dragState.itemId, { startTick: targetStartTick });
       }
-      this.dragState.appliedDeltaFrames = currentDeltaFrames;
+      this.dragState.appliedDeltaTicks = currentDeltaTicks;
       this.requestRender();
-    } else if (this.dragState.type === 'resize-left') {
-      let newStart = this.dragState.initialStartFrame + currentDeltaFrames;
-      let newLength = this.dragState.initialLength - currentDeltaFrames;
+      return;
+    }
 
-      if (newLength < 1) {
-        newLength = 1;
-        newStart = this.dragState.initialStartFrame + this.dragState.initialLength - 1;
+    if (this.dragState.type === 'resize-left') {
+      let nextStartTick = this.dragState.initialStartTick + currentDeltaTicks;
+      let nextDurationTicks = this.dragState.initialDurationTicks - currentDeltaTicks;
+
+      if (nextDurationTicks < 1) {
+        nextDurationTicks = 1;
+        nextStartTick = this.dragState.initialStartTick + this.dragState.initialDurationTicks - 1;
       }
-      if (newStart < 0) {
-        newStart = 0;
-        newLength = this.dragState.initialStartFrame + this.dragState.initialLength;
+      if (nextStartTick < 0) {
+        nextStartTick = 0;
+        nextDurationTicks = this.dragState.initialStartTick + this.dragState.initialDurationTicks;
       }
 
       if (this.dragState.itemType === 'strip') {
         this.stateService.updateStrip(this.dragState.itemId, {
-          startFrame: newStart,
-          length: newLength,
+          startTick: nextStartTick,
+          durationTicks: nextDurationTicks,
         });
       } else {
         this.stateService.updateFolder(this.dragState.itemId, {
-          startFrame: newStart,
-          length: newLength,
+          startTick: nextStartTick,
+          durationTicks: nextDurationTicks,
         });
       }
-      this.dragState.appliedDeltaFrames = currentDeltaFrames;
+
+      this.dragState.appliedDeltaTicks = currentDeltaTicks;
       this.requestRender();
-    } else if (this.dragState.type === 'resize-right') {
-      const newLength = Math.max(1, this.dragState.initialLength + currentDeltaFrames);
-      if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, { length: newLength });
-      } else {
-        this.stateService.updateFolder(this.dragState.itemId, { length: newLength });
-      }
-      this.dragState.appliedDeltaFrames = currentDeltaFrames;
-      this.requestRender();
+      return;
     }
+
+    const nextDurationTicks = Math.max(1, this.dragState.initialDurationTicks + currentDeltaTicks);
+    if (this.dragState.itemType === 'strip') {
+      this.stateService.updateStrip(this.dragState.itemId, { durationTicks: nextDurationTicks });
+    } else {
+      this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
+    }
+    this.dragState.appliedDeltaTicks = currentDeltaTicks;
+    this.requestRender();
   }
 
   private onWindowMouseUp = () => {
     window.removeEventListener('mousemove', this.onWindowMouseMove);
     window.removeEventListener('mouseup', this.onWindowMouseUp);
-
     this.stopZoneLessDragLoop();
 
     if (this.dragState) {
       this.dragState = null;
-    } else if (this.mouseDownState) {
-      const { item, event: downEvent } = this.mouseDownState;
-
-      const isMultiSelect = downEvent.ctrlKey || downEvent.metaKey || downEvent.shiftKey;
-      if (downEvent.shiftKey) {
-        this.stateService.selectItem(item.id, true);
-      } else {
-        this.stateService.selectItem(item.id, isMultiSelect);
-      }
-
-      this.mouseDownState = null;
-      this.requestRender();
+      return;
     }
+
+    if (!this.mouseDownState) {
+      return;
+    }
+
+    const { item, event } = this.mouseDownState;
+    const isMultiSelect = event.ctrlKey || event.metaKey || event.shiftKey;
+    if (event.shiftKey) {
+      this.stateService.selectItem(item.id, true);
+    } else {
+      this.stateService.selectItem(item.id, isMultiSelect);
+    }
+
+    this.mouseDownState = null;
+    this.requestRender();
   };
 
   public onItemKeydown(event: KeyboardEvent | Event, itemId: string): void {
@@ -695,11 +696,11 @@ export class AnienTimelineComponent {
   }
 
   public shiftSelection(delta: number): void {
-    this.stateService.shiftSelectedByFrames(delta);
+    this.stateService.shiftSelectedByTicks(delta);
   }
 
-  public adjustSelectionLength(delta: number): void {
-    this.stateService.adjustSelectedLength(delta);
+  public adjustSelectionDuration(delta: number): void {
+    this.stateService.adjustSelectedDuration(delta);
   }
 
   public onBackgroundClick(event: MouseEvent): void {
@@ -707,6 +708,7 @@ export class AnienTimelineComponent {
     if (target.closest('.strip, .folder')) {
       return;
     }
+
     this.stateService.clearSelection();
     this.requestRender();
   }
@@ -715,10 +717,12 @@ export class AnienTimelineComponent {
     if (!(event instanceof KeyboardEvent)) {
       return;
     }
+
     const key = event.key.toLowerCase();
     if (key !== 'enter' && key !== ' ' && key !== 'spacebar') {
       return;
     }
+
     event.preventDefault();
     this.stateService.clearSelection();
     this.requestRender();
@@ -733,37 +737,34 @@ export class AnienTimelineComponent {
 
   public onRulerMouseDown(event: MouseEvent): void {
     this.rulerDragState = { isDragging: true, startX: event.clientX };
-    this.updateFrameFromMouse(event);
+    this.updateTickFromMouse(event);
     window.addEventListener('mousemove', this.onRulerMouseMove);
     window.addEventListener('mouseup', this.onRulerMouseUp);
   }
 
   private onRulerMouseMove = (event: MouseEvent) => {
     if (this.rulerDragState?.isDragging) {
-      this.updateFrameFromMouse(event);
+      this.updateTickFromMouse(event);
     }
   };
 
   private onRulerMouseUp = () => {
-    if (this.rulerDragState) {
-      this.rulerDragState = null;
-      window.removeEventListener('mousemove', this.onRulerMouseMove);
-      window.removeEventListener('mouseup', this.onRulerMouseUp);
-    }
+    this.rulerDragState = null;
+    window.removeEventListener('mousemove', this.onRulerMouseMove);
+    window.removeEventListener('mouseup', this.onRulerMouseUp);
   };
 
-  private updateFrameFromMouse(event: MouseEvent) {
-    if (!this.rulerWrapperRef) return;
+  private updateTickFromMouse(event: MouseEvent): void {
+    if (!this.rulerWrapperRef) {
+      return;
+    }
+
     const rulerRect = this.rulerWrapperRef.nativeElement.getBoundingClientRect();
     const scrollLeft = this.rulerWrapperRef.nativeElement.scrollLeft;
-
-    // Relative to the start of the ruler track
     const offsetX = event.clientX - rulerRect.left + scrollLeft;
-
-    let frame = Math.round(offsetX / this.FRAME_SIZE);
-    frame = Math.max(0, Math.min(frame, 1000)); // Clamp to 0-1000
-
-    this.stateService.setFrame(frame);
+    let tick = Math.round(offsetX / this.TICK_SIZE);
+    tick = Math.max(0, Math.min(tick, this.timelineExtentTicks()));
+    this.stateService.setCurrentTick(tick);
   }
 
   private requestRender(): void {
@@ -795,12 +796,12 @@ export class AnienTimelineComponent {
     if (this.detachRenderId === null) {
       return;
     }
+
     window.cancelAnimationFrame(this.detachRenderId);
     this.detachRenderId = null;
     this.requestRender();
   }
 
-  // Helper for testing
   public addTestStrip(): void {
     if (this.timelineItems().length === 0) {
       this.stateService.addTrack();
