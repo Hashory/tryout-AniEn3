@@ -166,6 +166,18 @@ export class YjsTimelineService {
     return this.latestSnapshot;
   }
 
+  public resetToDemoTimeline(): void {
+    this.doc.transact(() => {
+      const seededSnapshot = createDemoTimelineSnapshot();
+      this.writeSnapshotToYjs(seededSnapshot);
+      this.publishSnapshot(seededSnapshot);
+    });
+  }
+
+  public getDebugSnapshot(): TimelineSnapshot | null {
+    return this.latestSnapshot ?? this.buildSnapshot();
+  }
+
   public getItemById(itemId: string): StripItemSnapshot | FolderItemSnapshot | null {
     const snapshot = this.latestSnapshot ?? this.buildSnapshot();
     if (!snapshot) {
