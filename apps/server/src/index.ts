@@ -6,6 +6,7 @@ const port = 14202;
 
 const server = new Server({
   port,
+  address: '0.0.0.0',
   extensions: [
     new Logger(),
     new SQLite({

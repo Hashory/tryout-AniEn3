@@ -13,7 +13,7 @@ export class YjsDocumentService {
   constructor() {
     this.doc = new Y.Doc();
     this.provider = new HocuspocusProvider({
-      url: 'ws://127.0.0.1:14202',
+      url: `ws://${window.location.hostname}:14202`,
       name: 'dev-anien',
       document: this.doc,
     });
