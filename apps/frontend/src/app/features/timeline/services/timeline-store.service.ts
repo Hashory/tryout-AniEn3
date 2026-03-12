@@ -67,6 +67,7 @@ export interface MoveTargetInput {
   parentFolderId?: string;
   trackIndex: number;
   position?: number;
+  startTick?: number;
 }
 
 export interface DeleteItemOptions {
@@ -164,6 +165,18 @@ export class YjsTimelineService {
 
   public getSnapshot(): TimelineSnapshot | null {
     return this.latestSnapshot;
+  }
+
+  public resetToDemoTimeline(): void {
+    this.doc.transact(() => {
+      const seededSnapshot = createDemoTimelineSnapshot();
+      this.writeSnapshotToYjs(seededSnapshot);
+      this.publishSnapshot(seededSnapshot);
+    });
+  }
+
+  public getDebugSnapshot(): TimelineSnapshot | null {
+    return this.latestSnapshot ?? this.buildSnapshot();
   }
 
   public getItemById(itemId: string): StripItemSnapshot | FolderItemSnapshot | null {
@@ -521,6 +534,9 @@ export class YjsTimelineService {
         }
 
         placement.startRow = Math.max(0, Math.floor(target.trackIndex));
+        if (target.startTick !== undefined) {
+          placement.startTick = Math.max(0, Math.floor(target.startTick));
+        }
       },
       { preferredPlacementIds: [itemId] },
     );

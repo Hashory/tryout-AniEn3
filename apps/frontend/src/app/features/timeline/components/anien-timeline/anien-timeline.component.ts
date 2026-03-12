@@ -7,6 +7,7 @@ import {
   ViewChild,
   computed,
   inject,
+  signal,
 } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
@@ -104,6 +105,10 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
               (keydown.space)="onItemKeydown($event, item.id)"
             >
               <div
+                class="resize-handle top"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
+              ></div>
+              <div
                 class="resize-handle left"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
               ></div>
@@ -125,6 +130,10 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
                 class="resize-handle right"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
               ></div>
+              <div
+                class="resize-handle bottom"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
+              ></div>
             </div>
           }
         } @empty {
@@ -134,6 +143,12 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
     </div>
 
     <div class="timeline-actions">
+      <div class="actions-label">Initialize</div>
+      <div class="actions-group">
+        <button type="button" class="secondary-action" (click)="resetDemoTimeline()">
+          Reset Demo Timeline
+        </button>
+      </div>
       <div class="actions-label">Create</div>
       <div class="actions-group">
         <button type="button" (click)="createStrip()">Add Strip</button>
@@ -153,6 +168,12 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         <button type="button" (click)="shiftSelection(10)" [disabled]="!hasSelection()">
           Move +10 ticks
         </button>
+        <button type="button" (click)="shiftSelectionRows(-1)" [disabled]="!hasSelection()">
+          Move -1 row
+        </button>
+        <button type="button" (click)="shiftSelectionRows(1)" [disabled]="!hasSelection()">
+          Move +1 row
+        </button>
         <button type="button" (click)="adjustSelectionDuration(-1)" [disabled]="!hasSelection()">
           Shorten -1 tick
         </button>
@@ -163,7 +184,61 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
           Delete Selected
         </button>
       </div>
+      <div class="actions-label">Debug</div>
+      <div class="actions-group">
+        <button type="button" class="secondary-action" (click)="toggleDebugPanel()">
+          {{ debugPanelVisible() ? 'Hide' : 'Show' }} Snapshot
+        </button>
+        <button
+          type="button"
+          class="secondary-action"
+          (click)="copyDebugSnapshot()"
+          [disabled]="!debugSnapshotJson()"
+        >
+          {{ snapshotCopyLabel() }}
+        </button>
+      </div>
     </div>
+
+    @if (debugPanelVisible()) {
+      <aside class="timeline-debug-panel" aria-label="Timeline debug snapshot">
+        <div class="debug-panel-header">
+          <div>
+            <div class="debug-panel-title">Timeline Snapshot</div>
+            @if (debugStats(); as stats) {
+              <div class="debug-panel-meta">
+                Schema {{ stats.schemaVersion }} / Normalize {{ stats.normalizeVersion }} / Scale
+                {{ stats.timeScale }}
+              </div>
+            }
+          </div>
+          <button type="button" class="secondary-action" (click)="toggleDebugPanel()">Close</button>
+        </div>
+
+        @if (debugStats(); as stats) {
+          <dl class="debug-stats-grid">
+            <div>
+              <dt>Root</dt>
+              <dd>{{ stats.rootFolderSourceId }}</dd>
+            </div>
+            <div>
+              <dt>Strip Sources</dt>
+              <dd>{{ stats.stripSourceCount }}</dd>
+            </div>
+            <div>
+              <dt>Folder Sources</dt>
+              <dd>{{ stats.folderSourceCount }}</dd>
+            </div>
+            <div>
+              <dt>Placements</dt>
+              <dd>{{ stats.placementCount }}</dd>
+            </div>
+          </dl>
+        }
+
+        <pre>{{ debugSnapshotJson() }}</pre>
+      </aside>
+    }
   `,
   styles: [
     `
@@ -335,6 +410,25 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         right: 0;
       }
 
+      .timeline-main .folder .resize-handle.top,
+      .timeline-main .folder .resize-handle.bottom {
+        left: 0;
+        right: 0;
+        width: auto;
+        height: 10px;
+        cursor: row-resize;
+      }
+
+      .timeline-main .folder .resize-handle.top {
+        top: 0;
+        bottom: auto;
+      }
+
+      .timeline-main .folder .resize-handle.bottom {
+        top: auto;
+        bottom: 0;
+      }
+
       .timeline-main .folder {
         z-index: 10000;
         position: absolute;
@@ -423,6 +517,11 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         min-width: 138px;
       }
 
+      .timeline-actions button.secondary-action,
+      .timeline-debug-panel button.secondary-action {
+        background-color: #38404d;
+      }
+
       .timeline-actions button:disabled {
         background-color: #3a3f49;
         cursor: not-allowed;
@@ -440,6 +539,82 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         flex-direction: column;
         gap: 6px;
       }
+
+      .timeline-debug-panel {
+        position: absolute;
+        right: 172px;
+        bottom: 12px;
+        width: min(520px, calc(100% - 196px));
+        max-height: min(50vh, 420px);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid #2c3442;
+        border-radius: 8px;
+        background: rgba(13, 17, 22, 0.96);
+        color: #dce5f2;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        z-index: 40000;
+      }
+
+      .timeline-debug-panel .debug-panel-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .timeline-debug-panel .debug-panel-title {
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .timeline-debug-panel .debug-panel-meta {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .timeline-debug-panel .debug-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 12px;
+        margin: 0;
+      }
+
+      .timeline-debug-panel .debug-stats-grid div {
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: rgba(56, 64, 77, 0.35);
+      }
+
+      .timeline-debug-panel dt {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: #94a3b8;
+      }
+
+      .timeline-debug-panel dd {
+        margin: 4px 0 0;
+        font-size: 12px;
+        word-break: break-all;
+      }
+
+      .timeline-debug-panel pre {
+        margin: 0;
+        padding: 12px;
+        border-radius: 6px;
+        background: #090c10;
+        color: #cbe6ff;
+        overflow: auto;
+        font-size: 11px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -455,9 +630,12 @@ export class AnienTimelineComponent {
   public readonly timelineRows = this.stateService.timelineRows;
   public readonly timelineExtentTicks = this.stateService.timelineExtentTicks;
   public readonly timelineName = this.stateService.timelineName;
+  public readonly rootFolderSourceId = this.stateService.rootFolderSourceId;
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
   public readonly currentTick = this.stateService.currentTick;
+  public readonly debugStats = this.stateService.debugStats;
+  public readonly debugSnapshotJson = this.stateService.debugSnapshotJson;
   public readonly rulerTicks = computed(() => {
     const extent = this.timelineExtentTicks();
     return Array.from({ length: Math.floor(extent / 30) + 1 }, (_, index) => index * 30);
@@ -473,19 +651,28 @@ export class AnienTimelineComponent {
   @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
 
   private readonly TICK_SIZE = 2;
+  private readonly TRACK_HEIGHT = 34;
+
+  public readonly debugPanelVisible = signal(false);
+  public readonly snapshotCopyLabel = signal('Copy Snapshot JSON');
 
   private dragState: {
-    type: 'move' | 'resize-left' | 'resize-right';
+    type: 'move' | 'resize-left' | 'resize-right' | 'resize-top' | 'resize-bottom';
     itemId: string;
     itemType: 'strip' | 'folder';
     startX: number;
+    startY: number;
     initialStartTick: number;
+    initialStartRow: number;
     initialDurationTicks: number;
+    initialBodyTrackCount: number;
     appliedDeltaTicks: number;
+    appliedDeltaRows: number;
   } | null = null;
 
   private mouseDownState: {
     startX: number;
+    startY: number;
     item: StripVM | FolderVM;
     event: MouseEvent;
   } | null = null;
@@ -493,6 +680,7 @@ export class AnienTimelineComponent {
   private rulerDragState: { isDragging: boolean; startX: number } | null = null;
   private renderFrameId: number | null = null;
   private detachRenderId: number | null = null;
+  private snapshotCopyResetTimeoutId: number | null = null;
 
   public addTrack(): void {
     this.stateService.addTrack();
@@ -506,9 +694,42 @@ export class AnienTimelineComponent {
     this.stateService.createFolder();
   }
 
+  public resetDemoTimeline(): void {
+    this.stateService.resetToDemoTimeline();
+    this.debugPanelVisible.set(false);
+  }
+
+  public toggleDebugPanel(): void {
+    this.debugPanelVisible.update((visible) => !visible);
+  }
+
+  public async copyDebugSnapshot(): Promise<void> {
+    const snapshotJson = this.debugSnapshotJson();
+    if (!snapshotJson) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(snapshotJson);
+      this.snapshotCopyLabel.set('Copied Snapshot');
+    } catch {
+      this.snapshotCopyLabel.set('Copy Failed');
+    }
+
+    if (this.snapshotCopyResetTimeoutId !== null) {
+      window.clearTimeout(this.snapshotCopyResetTimeoutId);
+    }
+
+    this.snapshotCopyResetTimeoutId = window.setTimeout(() => {
+      this.snapshotCopyLabel.set('Copy Snapshot JSON');
+      this.snapshotCopyResetTimeoutId = null;
+    }, 1800);
+  }
+
   public onItemMouseDown(event: MouseEvent, item: StripVM | FolderVM): void {
     this.mouseDownState = {
       startX: event.clientX,
+      startY: event.clientY,
       item,
       event,
     };
@@ -532,9 +753,41 @@ export class AnienTimelineComponent {
       itemId: item.id,
       itemType: item.type,
       startX: event.clientX,
+      startY: event.clientY,
       initialStartTick: item.startTick,
+      initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
+      initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : 0,
       appliedDeltaTicks: 0,
+      appliedDeltaRows: 0,
+    };
+
+    this.startZoneLessDragLoop();
+    window.addEventListener('mousemove', this.onWindowMouseMove);
+    window.addEventListener('mouseup', this.onWindowMouseUp);
+  }
+
+  public onVerticalResizeMouseDown(
+    event: MouseEvent,
+    item: FolderVM,
+    side: 'top' | 'bottom',
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    this.stateService.selectItem(item.id, false);
+    this.dragState = {
+      type: side === 'top' ? 'resize-top' : 'resize-bottom',
+      itemId: item.id,
+      itemType: 'folder',
+      startX: event.clientX,
+      startY: event.clientY,
+      initialStartTick: item.startTick,
+      initialStartRow: item.startRow,
+      initialDurationTicks: item.durationTicks,
+      initialBodyTrackCount: item.bodyTrackCount,
+      appliedDeltaTicks: 0,
+      appliedDeltaRows: 0,
     };
 
     this.startZoneLessDragLoop();
@@ -553,7 +806,8 @@ export class AnienTimelineComponent {
     }
 
     const deltaX = Math.abs(event.clientX - this.mouseDownState.startX);
-    if (deltaX > 3) {
+    const deltaY = Math.abs(event.clientY - this.mouseDownState.startY);
+    if (deltaX > 3 || deltaY > 3) {
       this.startMoveDrag();
     }
   };
@@ -574,9 +828,13 @@ export class AnienTimelineComponent {
       itemId: item.id,
       itemType: item.type,
       startX: this.mouseDownState.startX,
+      startY: this.mouseDownState.startY,
       initialStartTick: item.startTick,
+      initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
+      initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : 0,
       appliedDeltaTicks: 0,
+      appliedDeltaRows: 0,
     };
     this.mouseDownState = null;
   }
@@ -589,23 +847,39 @@ export class AnienTimelineComponent {
     const deltaPixels = event.clientX - this.dragState.startX;
     const currentDeltaTicks = Math.round(deltaPixels / this.TICK_SIZE);
     const diffTicks = currentDeltaTicks - this.dragState.appliedDeltaTicks;
-    if (diffTicks === 0) {
-      return;
-    }
+    const deltaRowsPixels = event.clientY - this.dragState.startY;
+    const currentDeltaRows = Math.round(deltaRowsPixels / this.TRACK_HEIGHT);
+    const diffRows = currentDeltaRows - this.dragState.appliedDeltaRows;
 
     if (this.dragState.type === 'move') {
+      if (diffTicks === 0 && diffRows === 0) {
+        return;
+      }
+
       const targetStartTick = Math.max(0, this.dragState.initialStartTick + currentDeltaTicks);
+      const targetStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, { startTick: targetStartTick });
+        this.stateService.updateStrip(this.dragState.itemId, {
+          startTick: targetStartTick,
+          startRow: targetStartRow,
+        });
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, { startTick: targetStartTick });
+        this.stateService.updateFolder(this.dragState.itemId, {
+          startTick: targetStartTick,
+          startRow: targetStartRow,
+        });
       }
       this.dragState.appliedDeltaTicks = currentDeltaTicks;
+      this.dragState.appliedDeltaRows = currentDeltaRows;
       this.requestRender();
       return;
     }
 
     if (this.dragState.type === 'resize-left') {
+      if (diffTicks === 0) {
+        return;
+      }
+
       let nextStartTick = this.dragState.initialStartTick + currentDeltaTicks;
       let nextDurationTicks = this.dragState.initialDurationTicks - currentDeltaTicks;
 
@@ -635,13 +909,49 @@ export class AnienTimelineComponent {
       return;
     }
 
-    const nextDurationTicks = Math.max(1, this.dragState.initialDurationTicks + currentDeltaTicks);
-    if (this.dragState.itemType === 'strip') {
-      this.stateService.updateStrip(this.dragState.itemId, { durationTicks: nextDurationTicks });
-    } else {
-      this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
+    if (this.dragState.type === 'resize-right') {
+      if (diffTicks === 0) {
+        return;
+      }
+
+      const nextDurationTicks = Math.max(
+        1,
+        this.dragState.initialDurationTicks + currentDeltaTicks,
+      );
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, { durationTicks: nextDurationTicks });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
+      }
+      this.dragState.appliedDeltaTicks = currentDeltaTicks;
+      this.requestRender();
+      return;
     }
-    this.dragState.appliedDeltaTicks = currentDeltaTicks;
+
+    if (diffRows === 0) {
+      return;
+    }
+
+    if (this.dragState.type === 'resize-bottom') {
+      const nextBodyTrackCount = Math.max(
+        1,
+        this.dragState.initialBodyTrackCount + currentDeltaRows,
+      );
+      this.stateService.updateFolder(this.dragState.itemId, {
+        bodyTrackCount: nextBodyTrackCount,
+      });
+      this.dragState.appliedDeltaRows = currentDeltaRows;
+      this.requestRender();
+      return;
+    }
+
+    const nextBodyTrackCount = Math.max(1, this.dragState.initialBodyTrackCount - currentDeltaRows);
+    const nextStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
+    this.stateService.updateFolder(this.dragState.itemId, {
+      bodyTrackCount: nextBodyTrackCount,
+      startRow: nextStartRow,
+    });
+    this.dragState.appliedDeltaRows = currentDeltaRows;
     this.requestRender();
   }
 
@@ -651,7 +961,13 @@ export class AnienTimelineComponent {
     this.stopZoneLessDragLoop();
 
     if (this.dragState) {
+      const completedDrag = this.dragState;
       this.dragState = null;
+
+      if (completedDrag.type === 'move') {
+        this.finalizeMove(completedDrag.itemId);
+      }
+
       return;
     }
 
@@ -697,6 +1013,10 @@ export class AnienTimelineComponent {
 
   public shiftSelection(delta: number): void {
     this.stateService.shiftSelectedByTicks(delta);
+  }
+
+  public shiftSelectionRows(delta: number): void {
+    this.stateService.shiftSelectedByRows(delta);
   }
 
   public adjustSelectionDuration(delta: number): void {
@@ -802,10 +1122,95 @@ export class AnienTimelineComponent {
     this.requestRender();
   }
 
-  public addTestStrip(): void {
-    if (this.timelineItems().length === 0) {
-      this.stateService.addTrack();
+  private finalizeMove(itemId: string): void {
+    const draggedItem = this.timelineItems().find((item) => item.id === itemId);
+    if (!draggedItem) {
+      this.requestRender();
+      return;
     }
-    this.stateService.addTrack();
+
+    const target = this.resolveDropTarget(draggedItem);
+    if (!target || target.parentFolderId === draggedItem.parentFolderId) {
+      this.requestRender();
+      return;
+    }
+
+    this.stateService.moveItem(itemId, target);
+    this.requestRender();
+  }
+
+  private resolveDropTarget(
+    draggedItem: StripVM | FolderVM,
+  ):
+    | (Required<
+        Pick<import('../../services/timeline-store.service').MoveTargetInput, 'parentFolderId'>
+      > &
+        Pick<
+          import('../../services/timeline-store.service').MoveTargetInput,
+          'trackIndex' | 'startTick'
+        >)
+    | null {
+    const rootFolderSourceId = this.rootFolderSourceId();
+    if (!rootFolderSourceId) {
+      return null;
+    }
+
+    const candidateFolders = this.timelineItems()
+      .filter((item): item is FolderVM => item.type === 'folder')
+      .filter((item) => this.isValidDropTargetFolder(draggedItem, item))
+      .filter((item) =>
+        this.isInsideFolderBody(draggedItem.absoluteStartTick, draggedItem.absoluteStartRow, item),
+      )
+      .sort(
+        (left, right) =>
+          right.absoluteStartRow - left.absoluteStartRow || left.rowSpan - right.rowSpan,
+      );
+
+    const targetFolder = candidateFolders[0];
+    if (!targetFolder) {
+      return {
+        parentFolderId: rootFolderSourceId,
+        trackIndex: Math.max(0, draggedItem.absoluteStartRow),
+        startTick: Math.max(0, draggedItem.absoluteStartTick),
+      };
+    }
+
+    return {
+      parentFolderId: targetFolder.sourceId,
+      trackIndex: Math.max(0, draggedItem.absoluteStartRow - (targetFolder.absoluteStartRow + 1)),
+      startTick: Math.max(0, draggedItem.absoluteStartTick - targetFolder.absoluteStartTick),
+    };
+  }
+
+  private isInsideFolderBody(
+    absoluteStartTick: number,
+    absoluteStartRow: number,
+    folder: FolderVM,
+  ): boolean {
+    const bodyStartRow = folder.absoluteStartRow + 1;
+    const bodyEndRow = bodyStartRow + folder.bodyTrackCount;
+    const folderEndTick = folder.absoluteStartTick + folder.durationTicks;
+
+    return (
+      absoluteStartTick >= folder.absoluteStartTick &&
+      absoluteStartTick < folderEndTick &&
+      absoluteStartRow >= bodyStartRow &&
+      absoluteStartRow < bodyEndRow
+    );
+  }
+
+  private isValidDropTargetFolder(
+    draggedItem: StripVM | FolderVM,
+    targetFolder: FolderVM,
+  ): boolean {
+    if (draggedItem.id === targetFolder.id) {
+      return false;
+    }
+
+    if (draggedItem.type === 'folder' && draggedItem.containedIds.includes(targetFolder.id)) {
+      return false;
+    }
+
+    return true;
   }
 }

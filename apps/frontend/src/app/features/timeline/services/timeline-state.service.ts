@@ -10,6 +10,16 @@ import {
 } from './timeline-store.service';
 import { TimelineSnapshot } from '../models/timeline.types';
 
+interface TimelineDebugStats {
+  schemaVersion: number;
+  normalizeVersion: number;
+  timeScale: number;
+  rootFolderSourceId: string;
+  stripSourceCount: number;
+  folderSourceCount: number;
+  placementCount: number;
+}
+
 export interface StripVM {
   id: string;
   type: 'strip';
@@ -67,6 +77,30 @@ export class TimelineStateService {
   public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
+  public readonly rootFolderSourceId = computed(
+    () => this.model()?.root.rootFolderSourceId ?? null,
+  );
+  public readonly debugSnapshot = this.model.asReadonly();
+  public readonly debugSnapshotJson = computed(() => {
+    const snapshot = this.model();
+    return snapshot ? JSON.stringify(snapshot, null, 2) : '';
+  });
+  public readonly debugStats = computed<TimelineDebugStats | null>(() => {
+    const snapshot = this.model();
+    if (!snapshot) {
+      return null;
+    }
+
+    return {
+      schemaVersion: snapshot.root.schemaVersion,
+      normalizeVersion: snapshot.root.normalizeVersion,
+      timeScale: snapshot.root.timeScale,
+      rootFolderSourceId: snapshot.root.rootFolderSourceId,
+      stripSourceCount: Object.keys(snapshot.stripSources).length,
+      folderSourceCount: Object.keys(snapshot.folderSources).length,
+      placementCount: Object.keys(snapshot.placements).length,
+    };
+  });
 
   public readonly timelineItems = computed<TimelineItemVM[]>(() => {
     const snapshot = this.model();
@@ -204,6 +238,12 @@ export class TimelineStateService {
 
   public setCurrentTick(tick: number): void {
     this._currentTick.set(tick);
+  }
+
+  public resetToDemoTimeline(): void {
+    this.yjsService.resetToDemoTimeline();
+    this._currentTick.set(0);
+    this._selectedItemIds.set(new Set());
   }
 
   public selectItem(id: string, multiSelect = false): void {
@@ -348,6 +388,26 @@ export class TimelineStateService {
         this.yjsService.updateStrip(id, { startTick: targetStartTick });
       } else {
         this.yjsService.updateFolder(id, { startTick: targetStartTick });
+      }
+    }
+  }
+
+  public shiftSelectedByRows(delta: number): void {
+    if (!delta) {
+      return;
+    }
+
+    for (const id of this._selectedItemIds()) {
+      const item = this.yjsService.getItemById(id);
+      if (!item) {
+        continue;
+      }
+
+      const targetStartRow = Math.max(0, item.startRow + delta);
+      if (item.type === 'strip') {
+        this.yjsService.updateStrip(id, { startRow: targetStartRow });
+      } else {
+        this.yjsService.updateFolder(id, { startRow: targetStartRow });
       }
     }
   }
