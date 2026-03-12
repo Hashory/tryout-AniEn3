@@ -910,6 +910,10 @@ export class YjsTimelineService {
   }
 
   private publishSnapshot(snapshot: TimelineSnapshot | null): void {
+    if (!snapshot && this.latestSnapshot) {
+      return;
+    }
+
     this.latestSnapshot = snapshot;
     for (const listener of this.timelineSubscribers) {
       listener(snapshot);
