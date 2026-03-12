@@ -67,6 +67,7 @@ export interface MoveTargetInput {
   parentFolderId?: string;
   trackIndex: number;
   position?: number;
+  startTick?: number;
 }
 
 export interface DeleteItemOptions {
@@ -533,6 +534,9 @@ export class YjsTimelineService {
         }
 
         placement.startRow = Math.max(0, Math.floor(target.trackIndex));
+        if (target.startTick !== undefined) {
+          placement.startTick = Math.max(0, Math.floor(target.startTick));
+        }
       },
       { preferredPlacementIds: [itemId] },
     );

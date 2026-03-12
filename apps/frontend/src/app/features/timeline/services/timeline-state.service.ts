@@ -77,6 +77,9 @@ export class TimelineStateService {
   public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
+  public readonly rootFolderSourceId = computed(
+    () => this.model()?.root.rootFolderSourceId ?? null,
+  );
   public readonly debugSnapshot = this.model.asReadonly();
   public readonly debugSnapshotJson = computed(() => {
     const snapshot = this.model();
@@ -385,6 +388,26 @@ export class TimelineStateService {
         this.yjsService.updateStrip(id, { startTick: targetStartTick });
       } else {
         this.yjsService.updateFolder(id, { startTick: targetStartTick });
+      }
+    }
+  }
+
+  public shiftSelectedByRows(delta: number): void {
+    if (!delta) {
+      return;
+    }
+
+    for (const id of this._selectedItemIds()) {
+      const item = this.yjsService.getItemById(id);
+      if (!item) {
+        continue;
+      }
+
+      const targetStartRow = Math.max(0, item.startRow + delta);
+      if (item.type === 'strip') {
+        this.yjsService.updateStrip(id, { startRow: targetStartRow });
+      } else {
+        this.yjsService.updateFolder(id, { startRow: targetStartRow });
       }
     }
   }
