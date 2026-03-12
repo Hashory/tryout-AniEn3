@@ -1,41 +1,55 @@
-import { Injectable, signal, computed, inject, Signal, DestroyRef } from '@angular/core';
+import { DestroyRef, computed, inject, Injectable, signal } from '@angular/core';
 import {
-  YjsTimelineService,
-  StripCreationInput,
+  DeleteItemOptions,
   FolderCreationInput,
-  StripUpdateInput,
   FolderUpdateInput,
   MoveTargetInput,
-  DeleteItemOptions,
+  StripCreationInput,
+  StripUpdateInput,
+  YjsTimelineService,
 } from './timeline-store.service';
-import { FlatTimelineSnapshot, Folder, Strip } from '../models/timeline.types';
+import { TimelineSnapshot } from '../models/timeline.types';
 
-export interface StripVM extends Strip {
+export interface StripVM {
+  id: string;
+  type: 'strip';
+  sourceId: string;
+  sourceName: string;
+  sourceOffsetTicks: number;
+  durationTicks: number;
+  startTick: number;
+  startRow: number;
+  laneSpan: number;
+  rowSpan: number;
+  ordinal: number;
   isSelected: boolean;
-  trackOrder: number;
-  isParentFolderVisible: boolean;
   parentFolderId: string | null;
-  parentStartFrame: number;
-  absoluteStartFrame: number;
+  parentStartTick: number;
+  absoluteStartTick: number;
+  absoluteStartRow: number;
 }
 
-export interface FolderVM extends Folder {
+export interface FolderVM {
+  id: string;
+  type: 'folder';
+  sourceId: string;
+  name: string;
+  bodyTrackCount: number;
+  durationTicks: number;
+  startTick: number;
+  startRow: number;
+  rowSpan: number;
+  ordinal: number;
   isSelected: boolean;
   isExpanded: boolean;
-  trackOrder: number;
-  trackLength: number;
-  isParentFolderVisible: boolean;
   containedIds: string[];
   parentFolderId: string | null;
-  parentStartFrame: number;
-  absoluteStartFrame: number;
+  parentStartTick: number;
+  absoluteStartTick: number;
+  absoluteStartRow: number;
 }
 
-type TimelineItemVM = StripVM | FolderVM;
-
-interface MapContext {
-  readonly selectedIds: ReadonlySet<string>;
-}
+export type TimelineItemVM = StripVM | FolderVM;
 
 @Injectable({
   providedIn: 'root',
@@ -44,114 +58,168 @@ export class TimelineStateService {
   private readonly yjsService = inject(YjsTimelineService);
   private readonly destroyRef = inject(DestroyRef);
 
-  private readonly model = signal<FlatTimelineSnapshot | null>(null);
+  private readonly model = signal<TimelineSnapshot | null>(null);
 
-  private readonly _currentFrame = signal<number>(0);
+  private readonly _currentTick = signal<number>(0);
   private readonly _selectedItemIds = signal<Set<string>>(new Set<string>());
   private readonly _zoomLevel = signal<number>(1);
 
-  public readonly currentFrame = this._currentFrame.asReadonly();
+  public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
 
-  public readonly timelineItems: Signal<TimelineItemVM[]> = computed(() => {
+  public readonly timelineItems = computed<TimelineItemVM[]>(() => {
     const snapshot = this.model();
     if (!snapshot) {
       return [];
     }
 
-    const rootEntity = snapshot.entities[snapshot.rootId];
-    if (!rootEntity || rootEntity.type !== 'folder') {
+    const rootFolder = snapshot.folderSources[snapshot.root.rootFolderSourceId];
+    if (!rootFolder) {
       return [];
     }
 
-    const context: MapContext = {
-      selectedIds: this._selectedItemIds(),
-    };
-
+    const selectedIds = this._selectedItemIds();
     const items: TimelineItemVM[] = [];
-    let nextTrackOrder = 0;
 
-    const processTrack = (
-      trackItems: string[],
-      parentVisible: boolean,
-      frameOffset: number,
+    const visitFolder = (
+      folderSourceId: string,
+      contentStartTick: number,
+      contentStartRow: number,
       parentFolderId: string | null,
     ): void => {
-      const currentTrackOrder = nextTrackOrder++;
+      const folderSource = snapshot.folderSources[folderSourceId];
+      if (!folderSource) {
+        return;
+      }
 
-      for (const itemId of trackItems) {
-        const item = snapshot.entities[itemId];
-        if (!item) {
+      for (const placementId of folderSource.childPlacementIds) {
+        const placement = snapshot.placements[placementId];
+        if (!placement) {
           continue;
         }
 
-        if (item.type === 'strip') {
-          const absoluteStartFrame = item.startFrame + frameOffset;
-          items.push(
-            this.mapStrip(
-              item,
-              currentTrackOrder,
-              parentVisible,
-              context.selectedIds,
-              absoluteStartFrame,
-              parentFolderId,
-              frameOffset,
-            ),
-          );
+        if (placement.type === 'strip-placement') {
+          const stripSource = snapshot.stripSources[placement.sourceId];
+          if (!stripSource) {
+            continue;
+          }
+
+          items.push({
+            id: placement.id,
+            type: 'strip',
+            sourceId: stripSource.id,
+            sourceName: stripSource.name,
+            sourceOffsetTicks: placement.sourceOffsetTicks,
+            durationTicks: placement.durationTicks,
+            startTick: placement.startTick,
+            startRow: placement.startRow,
+            laneSpan: placement.laneSpan,
+            rowSpan: placement.laneSpan,
+            ordinal: placement.ordinal,
+            isSelected: selectedIds.has(placement.id),
+            parentFolderId,
+            parentStartTick: contentStartTick,
+            absoluteStartTick: contentStartTick + placement.startTick,
+            absoluteStartRow: contentStartRow + placement.startRow,
+          });
           continue;
         }
 
-        const absoluteStartFrame = item.startFrame + frameOffset;
-        const folderVM = this.mapFolder(
-          item,
-          currentTrackOrder,
-          parentVisible,
-          context,
-          absoluteStartFrame,
-          snapshot,
+        const childFolderSource = snapshot.folderSources[placement.sourceId];
+        if (!childFolderSource) {
+          continue;
+        }
+
+        const absoluteStartTick = contentStartTick + placement.startTick;
+        const absoluteStartRow = contentStartRow + placement.startRow;
+        items.push({
+          id: placement.id,
+          type: 'folder',
+          sourceId: childFolderSource.id,
+          name: childFolderSource.name,
+          bodyTrackCount: childFolderSource.bodyTrackCount,
+          durationTicks: placement.durationTicks,
+          startTick: placement.startTick,
+          startRow: placement.startRow,
+          rowSpan: 1 + childFolderSource.bodyTrackCount,
+          ordinal: placement.ordinal,
+          isSelected: selectedIds.has(placement.id),
+          isExpanded: true,
+          containedIds: this.collectContainedIds(snapshot, childFolderSource.id),
           parentFolderId,
-          frameOffset,
-        );
-        items.push(folderVM);
+          parentStartTick: contentStartTick,
+          absoluteStartTick,
+          absoluteStartRow,
+        });
 
-        const childVisibility = parentVisible;
-        const nestedTracks = snapshot.folderTracks[item.id] ?? [];
-        for (const nestedTrack of nestedTracks) {
-          processTrack(nestedTrack, childVisibility, absoluteStartFrame, item.id);
-        }
+        visitFolder(
+          childFolderSource.id,
+          absoluteStartTick,
+          absoluteStartRow + 1,
+          childFolderSource.id,
+        );
       }
     };
 
-    const rootTracks = snapshot.folderTracks[rootEntity.id] ?? [];
-    for (const track of rootTracks) {
-      processTrack(track, true, rootEntity.startFrame, rootEntity.id);
+    visitFolder(snapshot.root.rootFolderSourceId, 0, 0, snapshot.root.rootFolderSourceId);
+    return items;
+  });
+
+  public readonly timelineRows = computed(() => {
+    const snapshot = this.model();
+    if (!snapshot) {
+      return 1;
     }
 
-    return items;
+    const rootFolder = snapshot.folderSources[snapshot.root.rootFolderSourceId];
+    const occupiedRows = this.timelineItems().reduce(
+      (maxRow, item) => Math.max(maxRow, item.absoluteStartRow + item.rowSpan),
+      0,
+    );
+    return Math.max(rootFolder?.bodyTrackCount ?? 1, occupiedRows, 1);
+  });
+
+  public readonly timelineExtentTicks = computed(() => {
+    const occupiedTicks = this.timelineItems().reduce(
+      (maxTick, item) => Math.max(maxTick, item.absoluteStartTick + item.durationTicks),
+      0,
+    );
+    return Math.max(occupiedTicks + 120, this.currentTick() + 120, 1000);
   });
 
   public readonly timelineName = computed(() => {
     const snapshot = this.model();
-    const rootEntity = snapshot?.entities[snapshot?.rootId ?? ''];
-    return rootEntity?.type === 'folder' ? rootEntity.name : 'Loading...';
+    const rootFolder = snapshot?.folderSources[snapshot.root.rootFolderSourceId ?? ''];
+    return rootFolder?.name ?? 'Loading...';
   });
 
-  public setFrame(frame: number): void {
-    this._currentFrame.set(frame);
+  constructor() {
+    const unsubscribe = this.yjsService.subscribeTimeline((snapshot) => {
+      this.model.set(snapshot);
+    });
+
+    this.destroyRef.onDestroy(unsubscribe);
+  }
+
+  public setCurrentTick(tick: number): void {
+    this._currentTick.set(tick);
   }
 
   public selectItem(id: string, multiSelect = false): void {
     this._selectedItemIds.update((currentSet) => {
       if (multiSelect) {
         if (currentSet.has(id)) {
-          const updated = new Set(currentSet);
-          updated.delete(id);
-          return updated;
+          const nextSelection = new Set(currentSet);
+          nextSelection.delete(id);
+          return nextSelection;
         }
-        currentSet.add(id);
-        return new Set(currentSet);
+
+        const nextSelection = new Set(currentSet);
+        nextSelection.add(id);
+        return nextSelection;
       }
+
       return new Set([id]);
     });
   }
@@ -161,12 +229,9 @@ export class TimelineStateService {
   }
 
   public addTrack(options?: { parentFolderId?: string; position?: number }): number | null {
-    const index =
-      this.yjsService.addTrack(options?.parentFolderId, {
-        position: options?.position,
-      }) ?? null;
-
-    return index;
+    return this.yjsService.addTrack(options?.parentFolderId, {
+      position: options?.position,
+    });
   }
 
   public addStrip(
@@ -179,11 +244,10 @@ export class TimelineStateService {
         position: target.position,
       }) ?? null;
 
-    if (!createdId) {
-      return null;
+    if (createdId) {
+      this.selectItem(createdId);
     }
 
-    this.selectItem(createdId);
     return createdId;
   }
 
@@ -197,11 +261,10 @@ export class TimelineStateService {
         position: target.position,
       }) ?? null;
 
-    if (!createdId) {
-      return null;
+    if (createdId) {
+      this.selectItem(createdId);
     }
 
-    this.selectItem(createdId);
     return createdId;
   }
 
@@ -211,19 +274,18 @@ export class TimelineStateService {
       return null;
     }
 
-    const stripData: StripCreationInput = {
-      source: this.createDefaultStripName(),
-      startFrame: context.startFrame,
-      length: 60,
-    };
-
     return this.addStrip(
       {
         parentFolderId: context.parentFolderId,
         trackIndex: context.trackIndex,
         position: context.position,
       },
-      stripData,
+      {
+        sourceName: this.createDefaultStripName(),
+        kind: 'generated',
+        startTick: context.startTick,
+        durationTicks: 60,
+      },
     );
   }
 
@@ -233,21 +295,18 @@ export class TimelineStateService {
       return null;
     }
 
-    const folderData: FolderCreationInput = {
-      name: this.createDefaultFolderName(),
-      startFrame: context.startFrame,
-      length: 120,
-      root: false,
-      trackCount: 1,
-    };
-
     return this.addFolder(
       {
         parentFolderId: context.parentFolderId,
         trackIndex: context.trackIndex,
         position: context.position,
       },
-      folderData,
+      {
+        name: this.createDefaultFolderName(),
+        startTick: context.startTick,
+        durationTicks: 120,
+        bodyTrackCount: 1,
+      },
     );
   }
 
@@ -256,19 +315,7 @@ export class TimelineStateService {
   }
 
   public updateFolder(itemId: string, updates: FolderUpdateInput): boolean {
-    const updated = this.yjsService.updateFolder(itemId, updates);
-    if (!updated) {
-      return false;
-    }
-
-    if (updates.name !== undefined) {
-      const currentSelection = this._selectedItemIds();
-      if (currentSelection.has(itemId)) {
-        this._selectedItemIds.set(new Set(currentSelection));
-      }
-    }
-
-    return updated;
+    return this.yjsService.updateFolder(itemId, updates);
   }
 
   public moveItem(itemId: string, target: MoveTargetInput): boolean {
@@ -276,164 +323,82 @@ export class TimelineStateService {
   }
 
   public deleteItem(itemId: string, options?: DeleteItemOptions): boolean {
-    const snapshotBeforeDelete = this.yjsService.getItemById(itemId);
     const deleted = this.yjsService.deleteItem(itemId, options);
-
     if (!deleted) {
       return false;
     }
 
-    const idsToClear = new Set<string>([itemId]);
-
-    if (snapshotBeforeDelete?.type === 'folder') {
-      const model = this.model();
-      if (model) {
-        const nestedIds = this.collectContainedIds(model, snapshotBeforeDelete.id);
-        for (const nestedId of nestedIds) {
-          idsToClear.add(nestedId);
-        }
-      }
-    }
-
-    this.removeSelection(idsToClear);
+    this.removeSelection([itemId]);
     return true;
   }
 
-  public shiftSelectedByFrames(delta: number): void {
+  public shiftSelectedByTicks(delta: number): void {
     if (!delta) {
       return;
     }
 
     for (const id of this._selectedItemIds()) {
-      const snapshot = this.yjsService.getItemById(id);
-      if (!snapshot) {
+      const item = this.yjsService.getItemById(id);
+      if (!item) {
         continue;
       }
 
-      const targetStart = Math.max(0, snapshot.startFrame + delta);
-
-      if (snapshot.type === 'strip') {
-        this.yjsService.updateStrip(id, { startFrame: targetStart });
-        continue;
-      }
-
-      if (snapshot.type === 'folder' && snapshot.root !== true) {
-        this.yjsService.updateFolder(id, { startFrame: targetStart });
+      const targetStartTick = Math.max(0, item.startTick + delta);
+      if (item.type === 'strip') {
+        this.yjsService.updateStrip(id, { startTick: targetStartTick });
+      } else {
+        this.yjsService.updateFolder(id, { startTick: targetStartTick });
       }
     }
   }
 
-  public adjustSelectedLength(delta: number): void {
+  public adjustSelectedDuration(delta: number): void {
     if (!delta) {
       return;
     }
 
     for (const id of this._selectedItemIds()) {
-      const snapshot = this.yjsService.getItemById(id);
-      if (!snapshot) {
+      const item = this.yjsService.getItemById(id);
+      if (!item) {
         continue;
       }
 
-      const targetLength = Math.max(1, snapshot.length + delta);
-
-      if (snapshot.type === 'strip') {
-        this.yjsService.updateStrip(id, { length: targetLength });
-        continue;
-      }
-
-      if (snapshot.type === 'folder') {
-        this.yjsService.updateFolder(id, { length: targetLength });
+      const targetDurationTicks = Math.max(1, item.durationTicks + delta);
+      if (item.type === 'strip') {
+        this.yjsService.updateStrip(id, { durationTicks: targetDurationTicks });
+      } else {
+        this.yjsService.updateFolder(id, { durationTicks: targetDurationTicks });
       }
     }
   }
 
   public deleteSelectedItem(): void {
     const selectedIds = Array.from(this._selectedItemIds());
-    if (!selectedIds.length) {
-      return;
-    }
-
     for (const id of selectedIds) {
       this.deleteItem(id);
     }
   }
 
-  constructor() {
-    const unsubscribe = this.yjsService.subscribeTimeline((snapshot) => {
-      this.model.set(snapshot);
-    });
-
-    this.destroyRef.onDestroy(unsubscribe);
-  }
-
-  private mapStrip(
-    strip: Strip,
-    trackOrder: number,
-    isParentFolderVisible: boolean,
-    selectedIds: ReadonlySet<string>,
-    absoluteStartFrame: number,
-    parentFolderId: string | null,
-    parentStartFrame: number,
-  ): StripVM {
-    return {
-      ...strip,
-      isSelected: selectedIds.has(strip.id),
-      trackOrder,
-      isParentFolderVisible,
-      startFrame: strip.startFrame,
-      parentFolderId,
-      parentStartFrame,
-      absoluteStartFrame,
-    };
-  }
-
-  private mapFolder(
-    folder: Folder,
-    trackOrder: number,
-    isParentFolderVisible: boolean,
-    context: MapContext,
-    absoluteStartFrame: number,
-    snapshot: FlatTimelineSnapshot,
-    parentFolderId: string | null,
-    parentStartFrame: number,
-  ): FolderVM {
-    const { selectedIds } = context;
-    const isExpanded = true;
-    const { ...rest } = folder;
-    const trackLength = snapshot.folderTracks[folder.id]?.length ?? 0;
-
-    return {
-      ...rest,
-      isSelected: selectedIds.has(folder.id),
-      isExpanded,
-      trackOrder,
-      trackLength,
-      isParentFolderVisible,
-      containedIds: this.collectContainedIds(snapshot, folder.id),
-      startFrame: folder.startFrame,
-      parentFolderId,
-      parentStartFrame,
-      absoluteStartFrame,
-    };
-  }
-
-  private collectContainedIds(snapshot: FlatTimelineSnapshot, folderId: string): string[] {
+  private collectContainedIds(snapshot: TimelineSnapshot, folderSourceId: string): string[] {
     const collected: string[] = [];
-    const queue: string[] = [folderId];
+    const queue: string[] = [folderSourceId];
 
-    while (queue.length) {
-      const currentFolderId = queue.shift();
-      if (!currentFolderId) {
+    while (queue.length > 0) {
+      const currentFolderSourceId = queue.shift();
+      if (!currentFolderSourceId) {
         continue;
       }
-      const tracks = snapshot.folderTracks[currentFolderId] ?? [];
-      for (const track of tracks) {
-        for (const itemId of track) {
-          collected.push(itemId);
-          const entity = snapshot.entities[itemId];
-          if (entity?.type === 'folder') {
-            queue.push(entity.id);
-          }
+
+      const folderSource = snapshot.folderSources[currentFolderSourceId];
+      if (!folderSource) {
+        continue;
+      }
+
+      for (const placementId of folderSource.childPlacementIds) {
+        collected.push(placementId);
+        const placement = snapshot.placements[placementId];
+        if (placement?.type === 'folder-placement') {
+          queue.push(placement.sourceId);
         }
       }
     }
@@ -442,19 +407,16 @@ export class TimelineStateService {
   }
 
   private removeSelection(ids: Iterable<string>): void {
-    const removalIds = Array.from(ids);
-    if (!removalIds.length) {
-      return;
-    }
-
-    let selectionChanged = false;
     const nextSelection = new Set(this._selectedItemIds());
-    for (const id of removalIds) {
+    let changed = false;
+
+    for (const id of ids) {
       if (nextSelection.delete(id)) {
-        selectionChanged = true;
+        changed = true;
       }
     }
-    if (selectionChanged) {
+
+    if (changed) {
       this._selectedItemIds.set(nextSelection);
     }
   }
@@ -463,20 +425,18 @@ export class TimelineStateService {
     parentFolderId?: string;
     trackIndex: number;
     position: number;
-    startFrame: number;
+    startTick: number;
   } | null {
     const selectedId = this.getPrimarySelection();
     if (selectedId) {
       const location = this.yjsService.getItemLocation(selectedId);
-      if (location) {
-        const snapshot = this.yjsService.getItemById(selectedId);
-        const baseStart = snapshot ? snapshot.startFrame + snapshot.length : 0;
-
+      const item = this.yjsService.getItemById(selectedId);
+      if (location && item) {
         return {
           parentFolderId: location.parentFolderId ?? undefined,
           trackIndex: location.trackIndex,
           position: location.entryIndex + 1,
-          startFrame: baseStart,
+          startTick: item.startTick + item.durationTicks,
         };
       }
     }
@@ -488,45 +448,40 @@ export class TimelineStateService {
     parentFolderId?: string;
     trackIndex: number;
     position: number;
-    startFrame: number;
+    startTick: number;
   } | null {
     const snapshot = this.model();
-    const rootId = snapshot?.rootId;
-
-    if (!snapshot || !rootId) {
+    if (!snapshot) {
       const createdTrackIndex = this.yjsService.addTrack();
       return {
         parentFolderId: undefined,
         trackIndex: createdTrackIndex ?? 0,
         position: 0,
-        startFrame: 0,
+        startTick: 0,
       };
     }
 
-    const rootEntity = snapshot.entities[rootId];
-    if (!rootEntity || rootEntity.type !== 'folder') {
+    const rootFolder = snapshot.folderSources[snapshot.root.rootFolderSourceId];
+    if (!rootFolder) {
       return null;
     }
 
-    const rootTracks = snapshot.folderTracks[rootId] ?? [];
-    if (rootTracks.length === 0) {
-      const createdTrackIndex = this.yjsService.addTrack(rootId);
-      return {
-        parentFolderId: rootId,
-        trackIndex: createdTrackIndex ?? 0,
-        position: 0,
-        startFrame: rootEntity.startFrame,
-      };
-    }
-
     const trackIndex = 0;
-    const position = rootTracks[trackIndex]?.length ?? 0;
+    const position = rootFolder.childPlacementIds.length;
+    const startTick = rootFolder.childPlacementIds.reduce((maxTick, placementId) => {
+      const placement = snapshot.placements[placementId];
+      if (!placement || placement.startRow !== trackIndex) {
+        return maxTick;
+      }
+
+      return Math.max(maxTick, placement.startTick + placement.durationTicks);
+    }, 0);
 
     return {
-      parentFolderId: rootId,
+      parentFolderId: rootFolder.id,
       trackIndex,
       position,
-      startFrame: rootEntity.startFrame,
+      startTick,
     };
   }
 

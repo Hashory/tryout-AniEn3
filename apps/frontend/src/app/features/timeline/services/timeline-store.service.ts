@@ -2,45 +2,66 @@ import { Injectable, inject } from '@angular/core';
 import * as Y from 'yjs';
 import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
 import {
-  FlatTimelineSnapshot,
-  Folder,
-  Strip,
-  TimelineEntity,
-  YEntitiesMap,
-  YEntity,
-  YEntityFields,
-  YFolderTracksMap,
-  YTrackIdList,
-  YTrackList,
+  FolderItemSnapshot,
+  StripItemSnapshot,
+  StripSource,
+  TimelineSnapshot,
+  YFolderChildrenArray,
+  YFolderChildrenMap,
+  YFolderSourceMap,
+  YFolderSourcesMap,
+  YPlacementMap,
+  YPlacementsMap,
+  YStripSourceMap,
+  YStripSourcesMap,
 } from '../models/timeline.types';
+import { createDemoTimelineSnapshot, normalizeTimelineSnapshot } from './timeline-normalization';
 
 interface TimelineUpdateMessage {
   type: 'timeline-update';
-  data: FlatTimelineSnapshot | null;
+  data: TimelineSnapshot | null;
 }
-
-const DEMO_SEED_VERSION = 3;
-const FLAT_SCHEMA_VERSION = 1;
 
 export interface StripCreationInput {
   id?: string;
-  source: string;
-  startFrame: number;
-  length: number;
+  sourceId?: string;
+  sourceName: string;
+  kind?: StripSource['kind'];
+  availableDurationTicks?: number;
+  startTick: number;
+  durationTicks: number;
+  sourceOffsetTicks?: number;
+  laneSpan?: number;
 }
 
 export interface FolderCreationInput {
   id?: string;
+  sourceId?: string;
   name: string;
-  startFrame: number;
-  length: number;
-  root?: boolean;
-  trackCount?: number;
+  startTick: number;
+  durationTicks: number;
+  bodyTrackCount?: number;
 }
 
-export type StripUpdateInput = Partial<Omit<Strip, 'id' | 'type'>>;
+export interface StripUpdateInput {
+  sourceId?: string;
+  sourceName?: string;
+  kind?: StripSource['kind'];
+  availableDurationTicks?: number | null;
+  sourceOffsetTicks?: number;
+  durationTicks?: number;
+  startTick?: number;
+  startRow?: number;
+  laneSpan?: number;
+}
 
-export type FolderUpdateInput = Partial<Omit<Folder, 'id' | 'type'>>;
+export interface FolderUpdateInput {
+  name?: string;
+  bodyTrackCount?: number;
+  durationTicks?: number;
+  startTick?: number;
+  startRow?: number;
+}
 
 export interface MoveTargetInput {
   parentFolderId?: string;
@@ -67,6 +88,10 @@ interface ItemLocation {
   entryIndex: number;
 }
 
+interface YWritableMap {
+  set(key: string, value: unknown): unknown;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -77,30 +102,36 @@ export class YjsTimelineService {
   private readonly broadcastChannel: BroadcastChannel;
 
   private readonly yRoot: Y.Map<unknown>;
-  private readonly yEntities: YEntitiesMap;
-  private readonly yFolderTracks: YFolderTracksMap;
+  private readonly yStripSources: YStripSourcesMap;
+  private readonly yFolderSources: YFolderSourcesMap;
+  private readonly yFolderChildren: YFolderChildrenMap;
+  private readonly yPlacements: YPlacementsMap;
 
-  private latestSnapshot: FlatTimelineSnapshot | null = null;
-  private readonly timelineSubscribers = new Set<(snapshot: FlatTimelineSnapshot | null) => void>();
+  private latestSnapshot: TimelineSnapshot | null = null;
+  private readonly timelineSubscribers = new Set<(snapshot: TimelineSnapshot | null) => void>();
 
   constructor() {
     this.doc = this.collab.getDoc();
     this.broadcastChannel = this.collab.getBroadcastChannel('anien-timeline-broadcast-channel');
 
     this.yRoot = this.doc.getMap('timelineRoot');
-    this.yEntities = this.doc.getMap('timelineEntities') as YEntitiesMap;
-    this.yFolderTracks = this.doc.getMap('timelineFolderTracks') as YFolderTracksMap;
+    this.yStripSources = this.doc.getMap('stripSources') as YStripSourcesMap;
+    this.yFolderSources = this.doc.getMap('folderSources') as YFolderSourcesMap;
+    this.yFolderChildren = this.doc.getMap('folderChildren') as YFolderChildrenMap;
+    this.yPlacements = this.doc.getMap('placements') as YPlacementsMap;
 
     const handleSnapshotUpdate = () => {
       this.publishSnapshot(this.buildSnapshot());
     };
 
-    this.yEntities.observeDeep(handleSnapshotUpdate);
-    this.yFolderTracks.observeDeep(handleSnapshotUpdate);
     this.yRoot.observe(handleSnapshotUpdate);
+    this.yStripSources.observeDeep(handleSnapshotUpdate);
+    this.yFolderSources.observeDeep(handleSnapshotUpdate);
+    this.yFolderChildren.observeDeep(handleSnapshotUpdate);
+    this.yPlacements.observeDeep(handleSnapshotUpdate);
 
     this.collab.onSynced(() => {
-      this.ensureFlatSchema();
+      this.ensureSourcePlacementSchema();
       this.publishSnapshot(this.buildSnapshot());
     });
 
@@ -118,9 +149,12 @@ export class YjsTimelineService {
         this.publishSnapshot(message.data ?? null);
       }
     };
+
+    this.ensureSourcePlacementSchema();
+    this.publishSnapshot(this.buildSnapshot());
   }
 
-  public subscribeTimeline(listener: (snapshot: FlatTimelineSnapshot | null) => void): () => void {
+  public subscribeTimeline(listener: (snapshot: TimelineSnapshot | null) => void): () => void {
     this.timelineSubscribers.add(listener);
     listener(this.latestSnapshot);
     return () => {
@@ -128,52 +162,111 @@ export class YjsTimelineService {
     };
   }
 
-  public getSnapshot(): FlatTimelineSnapshot | null {
+  public getSnapshot(): TimelineSnapshot | null {
     return this.latestSnapshot;
   }
 
-  public getItemById(itemId: string): TimelineEntity | null {
-    const entity = this.yEntities.get(itemId);
-    if (!entity) {
+  public getItemById(itemId: string): StripItemSnapshot | FolderItemSnapshot | null {
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
       return null;
     }
-    return this.convertEntityToJs(entity);
+
+    const placement = snapshot.placements[itemId];
+    if (!placement) {
+      return null;
+    }
+
+    const parentFolderSourceId = this.findParentFolderSourceId(itemId, snapshot);
+    if (placement.type === 'strip-placement') {
+      const source = snapshot.stripSources[placement.sourceId];
+      if (!source) {
+        return null;
+      }
+
+      return {
+        id: placement.id,
+        type: 'strip',
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceKind: source.kind,
+        availableDurationTicks: source.availableDurationTicks,
+        sourceOffsetTicks: placement.sourceOffsetTicks,
+        durationTicks: placement.durationTicks,
+        startTick: placement.startTick,
+        startRow: placement.startRow,
+        laneSpan: placement.laneSpan,
+        ordinal: placement.ordinal,
+        parentFolderSourceId,
+      };
+    }
+
+    const source = snapshot.folderSources[placement.sourceId];
+    if (!source) {
+      return null;
+    }
+
+    return {
+      id: placement.id,
+      type: 'folder',
+      sourceId: source.id,
+      name: source.name,
+      bodyTrackCount: source.bodyTrackCount,
+      durationTicks: placement.durationTicks,
+      startTick: placement.startTick,
+      startRow: placement.startRow,
+      ordinal: placement.ordinal,
+      parentFolderSourceId,
+    };
   }
 
   public getItemLocation(itemId: string): ItemLocationDetails | null {
-    const location = this.findItemLocationById(itemId);
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return null;
+    }
+
+    const location = this.findItemLocationById(itemId, snapshot);
     if (!location) {
       return null;
     }
 
-    const trackList = this.yFolderTracks.get(location.parentFolderId);
-    const trackLength = trackList?.get(location.trackIndex)?.length ?? 0;
-    const totalTracks = trackList?.length ?? 0;
+    const parentFolder = snapshot.folderSources[location.parentFolderId];
+    const trackLength = parentFolder.childPlacementIds.filter((placementId) => {
+      const placement = snapshot.placements[placementId];
+      return placement?.startRow === location.trackIndex;
+    }).length;
 
     return {
-      parentFolderId: location.parentFolderId ?? null,
+      parentFolderId: location.parentFolderId,
       trackIndex: location.trackIndex,
       entryIndex: location.entryIndex,
       trackLength,
-      totalTracks,
+      totalTracks: parentFolder.bodyTrackCount,
     };
   }
 
   public addTrack(folderId?: string, options?: { position?: number }): number | null {
-    let createdIndex: number | null = null;
-    this.doc.transact(() => {
-      const targetFolderId = this.resolveFolderId(folderId);
-      if (!targetFolderId) {
-        console.error(`Folder ${folderId ?? 'root'} not found while adding track.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return null;
+    }
 
-      const trackList = this.ensureTrackList(targetFolderId);
-      const insertIndex = this.normalizeInsertIndex(options?.position, trackList.length);
-      const newTrack: YTrackIdList = new Y.Array<string>();
-      trackList.insert(insertIndex, [newTrack]);
-      createdIndex = insertIndex;
-    });
+    void options;
+
+    const targetFolderId = this.resolveFolderId(folderId, snapshot);
+    if (!targetFolderId) {
+      console.error(`Folder ${folderId ?? 'root'} not found while adding a track.`);
+      return null;
+    }
+
+    const createdIndex = snapshot.folderSources[targetFolderId].bodyTrackCount;
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        workingSnapshot.folderSources[targetFolderId].bodyTrackCount += 1;
+      },
+      { preferredFolderSourceIds: [targetFolderId] },
+    );
     return createdIndex;
   }
 
@@ -182,38 +275,54 @@ export class YjsTimelineService {
     stripData: StripCreationInput,
     options?: { parentFolderId?: string; position?: number },
   ): string | null {
-    let createdId: string | null = null;
-    this.doc.transact(() => {
-      const targetFolderId = this.resolveFolderId(options?.parentFolderId);
-      if (!targetFolderId) {
-        console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding strip.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return null;
+    }
 
-      const trackList = this.ensureTrackList(targetFolderId);
-      const targetTrack = trackList.get(trackIndex);
+    const targetFolderId = this.resolveFolderId(options?.parentFolderId, snapshot);
+    if (!targetFolderId) {
+      console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding a strip.`);
+      return null;
+    }
 
-      if (!targetTrack) {
-        console.error(
-          `Track index ${trackIndex} not found in folder ${options?.parentFolderId ?? 'root'}.`,
+    const placementId = stripData.id ?? crypto.randomUUID();
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        const sourceId = stripData.sourceId ?? crypto.randomUUID();
+        const existingSource = workingSnapshot.stripSources[sourceId];
+        workingSnapshot.stripSources[sourceId] = {
+          id: sourceId,
+          type: 'strip-source',
+          kind: stripData.kind ?? existingSource?.kind ?? 'unknown',
+          name: stripData.sourceName,
+          availableDurationTicks:
+            stripData.availableDurationTicks ?? existingSource?.availableDurationTicks,
+          metadata: existingSource?.metadata,
+        };
+
+        workingSnapshot.placements[placementId] = {
+          id: placementId,
+          type: 'strip-placement',
+          sourceId,
+          sourceOffsetTicks: stripData.sourceOffsetTicks ?? 0,
+          durationTicks: stripData.durationTicks,
+          startTick: stripData.startTick,
+          startRow: Math.max(0, Math.floor(trackIndex)),
+          laneSpan: stripData.laneSpan ?? 1,
+          ordinal: workingSnapshot.root.nextOrdinal,
+        };
+        workingSnapshot.root.nextOrdinal += 1;
+        this.insertPlacementIntoFolder(
+          workingSnapshot,
+          targetFolderId,
+          placementId,
+          options?.position,
         );
-        return;
-      }
-
-      const insertIndex = this.normalizeInsertIndex(options?.position, targetTrack.length);
-      const stripId = stripData.id ?? crypto.randomUUID();
-      const newStrip = new Y.Map<YEntityFields>() as YEntity;
-      newStrip.set('id', stripId);
-      newStrip.set('type', 'strip');
-      newStrip.set('source', stripData.source);
-      newStrip.set('startFrame', stripData.startFrame);
-      newStrip.set('length', stripData.length);
-
-      this.yEntities.set(stripId, newStrip);
-      targetTrack.insert(insertIndex, [stripId]);
-      createdId = stripId;
-    });
-    return createdId;
+      },
+      { preferredPlacementIds: [placementId] },
+    );
+    return placementId;
   }
 
   public addFolderToTrack(
@@ -221,47 +330,53 @@ export class YjsTimelineService {
     folderData: FolderCreationInput,
     options?: { parentFolderId?: string; position?: number },
   ): string | null {
-    let createdId: string | null = null;
-    this.doc.transact(() => {
-      const targetFolderId = this.resolveFolderId(options?.parentFolderId);
-      if (!targetFolderId) {
-        console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding folder.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return null;
+    }
 
-      const trackList = this.ensureTrackList(targetFolderId);
-      const targetTrack = trackList.get(trackIndex);
+    const targetFolderId = this.resolveFolderId(options?.parentFolderId, snapshot);
+    if (!targetFolderId) {
+      console.error(`Folder ${options?.parentFolderId ?? 'root'} not found while adding a folder.`);
+      return null;
+    }
 
-      if (!targetTrack) {
-        console.error(
-          `Track index ${trackIndex} not found in folder ${options?.parentFolderId ?? 'root'}.`,
+    const placementId = folderData.id ?? crypto.randomUUID();
+    const sourceId = folderData.sourceId ?? crypto.randomUUID();
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        const existingSource = workingSnapshot.folderSources[sourceId];
+        workingSnapshot.folderSources[sourceId] = {
+          id: sourceId,
+          type: 'folder-source',
+          name: folderData.name,
+          bodyTrackCount: folderData.bodyTrackCount ?? existingSource?.bodyTrackCount ?? 1,
+          childPlacementIds: [...(existingSource?.childPlacementIds ?? [])],
+        };
+        workingSnapshot.folderChildren[sourceId] = [
+          ...(workingSnapshot.folderChildren[sourceId] ?? existingSource?.childPlacementIds ?? []),
+        ];
+
+        workingSnapshot.placements[placementId] = {
+          id: placementId,
+          type: 'folder-placement',
+          sourceId,
+          durationTicks: folderData.durationTicks,
+          startTick: folderData.startTick,
+          startRow: Math.max(0, Math.floor(trackIndex)),
+          ordinal: workingSnapshot.root.nextOrdinal,
+        };
+        workingSnapshot.root.nextOrdinal += 1;
+        this.insertPlacementIntoFolder(
+          workingSnapshot,
+          targetFolderId,
+          placementId,
+          options?.position,
         );
-        return;
-      }
-
-      const insertIndex = this.normalizeInsertIndex(options?.position, targetTrack.length);
-      const folderId = folderData.id ?? crypto.randomUUID();
-      const newFolder = new Y.Map<YEntityFields>() as YEntity;
-      newFolder.set('id', folderId);
-      newFolder.set('type', 'folder');
-      newFolder.set('name', folderData.name);
-      newFolder.set('startFrame', folderData.startFrame);
-      newFolder.set('length', folderData.length);
-      newFolder.set('root', folderData.root ?? false);
-
-      this.yEntities.set(folderId, newFolder);
-
-      const nestedTracks = new Y.Array<YTrackIdList>();
-      const trackCount = folderData.trackCount ?? 0;
-      for (let i = 0; i < trackCount; i++) {
-        nestedTracks.push([new Y.Array<string>()]);
-      }
-      this.yFolderTracks.set(folderId, nestedTracks);
-
-      targetTrack.insert(insertIndex, [folderId]);
-      createdId = folderId;
-    });
-    return createdId;
+      },
+      { preferredPlacementIds: [placementId], preferredFolderSourceIds: [sourceId] },
+    );
+    return placementId;
   }
 
   public updateStrip(itemId: string, updates: StripUpdateInput): boolean {
@@ -269,29 +384,67 @@ export class YjsTimelineService {
       return false;
     }
 
-    let updated = false;
-    this.doc.transact(() => {
-      const entity = this.yEntities.get(itemId);
-      if (!entity || entity.get('type') !== 'strip') {
-        console.warn(`Strip ${itemId} was not found for update.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    const currentPlacement = snapshot?.placements[itemId];
+    if (!currentPlacement || currentPlacement.type !== 'strip-placement') {
+      console.warn(`Strip placement ${itemId} was not found for update.`);
+      return false;
+    }
 
-      if (updates.source !== undefined) {
-        entity.set('source', updates.source);
-        updated = true;
-      }
-      if (updates.startFrame !== undefined) {
-        entity.set('startFrame', updates.startFrame);
-        updated = true;
-      }
-      if (updates.length !== undefined) {
-        entity.set('length', updates.length);
-        updated = true;
-      }
-    });
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        const placement = workingSnapshot.placements[itemId];
+        if (!placement || placement.type !== 'strip-placement') {
+          return;
+        }
 
-    return updated;
+        let sourceId = placement.sourceId;
+        if (updates.sourceId !== undefined) {
+          sourceId = updates.sourceId;
+          const previousSource = workingSnapshot.stripSources[placement.sourceId];
+          workingSnapshot.stripSources[sourceId] = workingSnapshot.stripSources[sourceId] ?? {
+            id: sourceId,
+            type: 'strip-source',
+            kind: previousSource?.kind ?? 'unknown',
+            name: previousSource?.name ?? 'Untitled Strip',
+            availableDurationTicks: previousSource?.availableDurationTicks,
+            metadata: previousSource?.metadata,
+          };
+          placement.sourceId = sourceId;
+        }
+
+        const source = workingSnapshot.stripSources[sourceId];
+        if (source) {
+          if (updates.sourceName !== undefined) {
+            source.name = updates.sourceName;
+          }
+          if (updates.kind !== undefined) {
+            source.kind = updates.kind;
+          }
+          if (updates.availableDurationTicks !== undefined) {
+            source.availableDurationTicks = updates.availableDurationTicks ?? undefined;
+          }
+        }
+
+        if (updates.sourceOffsetTicks !== undefined) {
+          placement.sourceOffsetTicks = updates.sourceOffsetTicks;
+        }
+        if (updates.durationTicks !== undefined) {
+          placement.durationTicks = updates.durationTicks;
+        }
+        if (updates.startTick !== undefined) {
+          placement.startTick = updates.startTick;
+        }
+        if (updates.startRow !== undefined) {
+          placement.startRow = updates.startRow;
+        }
+        if (updates.laneSpan !== undefined) {
+          placement.laneSpan = updates.laneSpan;
+        }
+      },
+      { preferredPlacementIds: [itemId] },
+    );
+    return true;
   }
 
   public updateFolder(itemId: string, updates: FolderUpdateInput): boolean {
@@ -299,131 +452,115 @@ export class YjsTimelineService {
       return false;
     }
 
-    let updated = false;
-    this.doc.transact(() => {
-      const entity = this.yEntities.get(itemId);
-      if (!entity || entity.get('type') !== 'folder') {
-        console.warn(`Folder ${itemId} was not found for update.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    const currentPlacement = snapshot?.placements[itemId];
+    if (!currentPlacement || currentPlacement.type !== 'folder-placement') {
+      console.warn(`Folder placement ${itemId} was not found for update.`);
+      return false;
+    }
 
-      if (updates.name !== undefined) {
-        entity.set('name', updates.name);
-        updated = true;
-      }
-      if (updates.startFrame !== undefined) {
-        entity.set('startFrame', updates.startFrame);
-        updated = true;
-      }
-      if (updates.length !== undefined) {
-        entity.set('length', updates.length);
-        updated = true;
-      }
-      if (updates.root !== undefined) {
-        entity.set('root', updates.root);
-        updated = true;
-      }
-    });
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        const placement = workingSnapshot.placements[itemId];
+        if (!placement || placement.type !== 'folder-placement') {
+          return;
+        }
 
-    return updated;
+        const source = workingSnapshot.folderSources[placement.sourceId];
+        if (!source) {
+          return;
+        }
+
+        if (updates.name !== undefined) {
+          source.name = updates.name;
+        }
+        if (updates.bodyTrackCount !== undefined) {
+          source.bodyTrackCount = updates.bodyTrackCount;
+        }
+        if (updates.durationTicks !== undefined) {
+          placement.durationTicks = updates.durationTicks;
+        }
+        if (updates.startTick !== undefined) {
+          placement.startTick = updates.startTick;
+        }
+        if (updates.startRow !== undefined) {
+          placement.startRow = updates.startRow;
+        }
+      },
+      { preferredPlacementIds: [itemId], preferredFolderSourceIds: [currentPlacement.sourceId] },
+    );
+    return true;
   }
 
   public moveItem(itemId: string, target: MoveTargetInput): boolean {
-    let moved = false;
-    this.doc.transact(() => {
-      const location = this.findItemLocationById(itemId);
-      if (!location) {
-        console.warn(`Item ${itemId} was not found for move.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return false;
+    }
 
-      const destinationFolderId = this.resolveFolderId(target.parentFolderId);
-      if (!destinationFolderId) {
-        console.error(`Folder ${target.parentFolderId ?? 'root'} not found while moving item.`);
-        return;
-      }
+    const location = this.findItemLocationById(itemId, snapshot);
+    if (!location) {
+      console.warn(`Item ${itemId} was not found for move.`);
+      return false;
+    }
 
-      const destinationTrackList = this.ensureTrackList(destinationFolderId);
-      const destinationTrack = destinationTrackList.get(target.trackIndex);
-      if (!destinationTrack) {
-        console.error(
-          `Track index ${target.trackIndex} not found in folder ${target.parentFolderId ?? 'root'}.`,
-        );
-        return;
-      }
+    const targetFolderId = this.resolveFolderId(target.parentFolderId, snapshot);
+    if (!targetFolderId) {
+      console.error(`Folder ${target.parentFolderId ?? 'root'} not found while moving item.`);
+      return false;
+    }
 
-      const initialLength = destinationTrack.length;
-      const desiredIndex = this.normalizeInsertIndex(target.position, initialLength);
-      const isSameFolder = destinationFolderId === location.parentFolderId;
-      const isSameTrack = isSameFolder && target.trackIndex === location.trackIndex;
+    this.mutateSnapshot(
+      (workingSnapshot) => {
+        this.removePlacementFromFolder(workingSnapshot, location.parentFolderId, itemId);
+        this.insertPlacementIntoFolder(workingSnapshot, targetFolderId, itemId, target.position);
 
-      const sourceTracks = this.yFolderTracks.get(location.parentFolderId);
-      const sourceTrack = sourceTracks?.get(location.trackIndex);
-      if (!sourceTrack) {
-        console.error('Source track was not found during move.');
-        return;
-      }
+        const placement = workingSnapshot.placements[itemId];
+        if (!placement) {
+          return;
+        }
 
-      sourceTrack.delete(location.entryIndex, 1);
-
-      const refreshedDestinationTrack = destinationTrackList.get(target.trackIndex);
-      if (!refreshedDestinationTrack) {
-        console.error('Destination track became unavailable after removal.');
-        return;
-      }
-
-      let insertIndex = desiredIndex;
-      if (isSameTrack && insertIndex > location.entryIndex) {
-        insertIndex -= 1;
-      }
-      insertIndex = this.clampInsertIndex(insertIndex, refreshedDestinationTrack.length);
-
-      refreshedDestinationTrack.insert(insertIndex, [itemId]);
-      moved = true;
-    });
-
-    return moved;
+        placement.startRow = Math.max(0, Math.floor(target.trackIndex));
+      },
+      { preferredPlacementIds: [itemId] },
+    );
+    return true;
   }
 
   public deleteItem(itemId: string, options?: DeleteItemOptions): boolean {
-    let deleted = false;
-    this.doc.transact(() => {
-      const location = this.findItemLocationById(itemId);
-      if (!location) {
-        console.warn(`Item ${itemId} was not found for deletion.`);
-        return;
-      }
+    const snapshot = this.latestSnapshot ?? this.buildSnapshot();
+    if (!snapshot) {
+      return false;
+    }
 
-      if (options?.parentFolderId && location.parentFolderId !== options.parentFolderId) {
-        console.warn(
-          `Item ${itemId} was found in a different folder (${location.parentFolderId ?? 'unknown'}) than expected ${options.parentFolderId}.`,
-        );
-        return;
-      }
+    const location = this.findItemLocationById(itemId, snapshot);
+    if (!location) {
+      console.warn(`Item ${itemId} was not found for deletion.`);
+      return false;
+    }
 
-      if (
-        options?.expectedTrackIndex !== undefined &&
-        location.trackIndex !== options.expectedTrackIndex
-      ) {
-        console.warn(
-          `Item ${itemId} was found in track ${location.trackIndex} but expected track ${options.expectedTrackIndex}.`,
-        );
-        return;
-      }
+    if (options?.parentFolderId && location.parentFolderId !== options.parentFolderId) {
+      console.warn(
+        `Item ${itemId} was found in folder ${location.parentFolderId} instead of ${options.parentFolderId}.`,
+      );
+      return false;
+    }
 
-      const parentTracks = this.yFolderTracks.get(location.parentFolderId);
-      const parentTrack = parentTracks?.get(location.trackIndex);
-      if (!parentTrack) {
-        console.warn(`Parent track missing while deleting item ${itemId}.`);
-        return;
-      }
+    if (
+      options?.expectedTrackIndex !== undefined &&
+      location.trackIndex !== options.expectedTrackIndex
+    ) {
+      console.warn(
+        `Item ${itemId} was found in track ${location.trackIndex} instead of ${options.expectedTrackIndex}.`,
+      );
+      return false;
+    }
 
-      parentTrack.delete(location.entryIndex, 1);
-      this.deleteEntityAndDescendants(itemId);
-      deleted = true;
+    this.mutateSnapshot((workingSnapshot) => {
+      this.removePlacementFromFolder(workingSnapshot, location.parentFolderId, itemId);
+      delete workingSnapshot.placements[itemId];
     });
-
-    return deleted;
+    return true;
   }
 
   public deleteItemFromTrack(
@@ -437,256 +574,303 @@ export class YjsTimelineService {
     });
   }
 
-  private ensureFlatSchema(): void {
-    const schemaVersion = this.yRoot.get('schemaVersion');
-    const rootId = this.yRoot.get('rootId');
-    if (schemaVersion === FLAT_SCHEMA_VERSION && typeof rootId === 'string') {
+  private ensureSourcePlacementSchema(): void {
+    const snapshot = this.readSnapshotFromYjs();
+    if (snapshot?.root.rootFolderSourceId) {
+      const normalized = normalizeTimelineSnapshot(snapshot);
+      this.writeSnapshotToYjs(normalized);
+      this.publishSnapshot(normalized);
       return;
     }
 
     this.doc.transact(() => {
-      this.yEntities.clear();
-      this.yFolderTracks.clear();
-      this.yRoot.clear();
-      this.seedDemoTimeline();
-      this.yRoot.set('schemaVersion', FLAT_SCHEMA_VERSION);
+      this.clearDocument();
+      const seededSnapshot = createDemoTimelineSnapshot();
+      this.writeSnapshotToYjs(seededSnapshot);
+      this.publishSnapshot(seededSnapshot);
     });
   }
 
-  private seedDemoTimeline(): void {
-    const rootId = crypto.randomUUID();
-    const rootEntity = new Y.Map<YEntityFields>() as YEntity;
-    rootEntity.set('id', rootId);
-    rootEntity.set('type', 'folder');
-    rootEntity.set('name', 'Root Timeline');
-    rootEntity.set('startFrame', 0);
-    rootEntity.set('length', 240);
-    rootEntity.set('root', true);
-
-    const introStripId = crypto.randomUUID();
-    const introStrip = new Y.Map<YEntityFields>() as YEntity;
-    introStrip.set('id', introStripId);
-    introStrip.set('type', 'strip');
-    introStrip.set('source', 'Intro Clip');
-    introStrip.set('startFrame', 0);
-    introStrip.set('length', 120);
-
-    const montageStripId = crypto.randomUUID();
-    const montageStrip = new Y.Map<YEntityFields>() as YEntity;
-    montageStrip.set('id', montageStripId);
-    montageStrip.set('type', 'strip');
-    montageStrip.set('source', 'Montage Sequence');
-    montageStrip.set('startFrame', 60);
-    montageStrip.set('length', 180);
-
-    const nestedFolderId = crypto.randomUUID();
-    const nestedFolder = new Y.Map<YEntityFields>() as YEntity;
-    nestedFolder.set('id', nestedFolderId);
-    nestedFolder.set('type', 'folder');
-    nestedFolder.set('name', 'B-Roll Folder');
-    nestedFolder.set('startFrame', 180);
-    nestedFolder.set('length', 220);
-    nestedFolder.set('root', false);
-
-    const bRollStripId = crypto.randomUUID();
-    const bRollStrip = new Y.Map<YEntityFields>() as YEntity;
-    bRollStrip.set('id', bRollStripId);
-    bRollStrip.set('type', 'strip');
-    bRollStrip.set('source', 'B-Roll Shot 1');
-    bRollStrip.set('startFrame', 0);
-    bRollStrip.set('length', 80);
-
-    const bRollStripAltId = crypto.randomUUID();
-    const bRollStripAlt = new Y.Map<YEntityFields>() as YEntity;
-    bRollStripAlt.set('id', bRollStripAltId);
-    bRollStripAlt.set('type', 'strip');
-    bRollStripAlt.set('source', 'B-Roll Shot 2');
-    bRollStripAlt.set('startFrame', 90);
-    bRollStripAlt.set('length', 60);
-
-    const cutawayStripId = crypto.randomUUID();
-    const cutawayStrip = new Y.Map<YEntityFields>() as YEntity;
-    cutawayStrip.set('id', cutawayStripId);
-    cutawayStrip.set('type', 'strip');
-    cutawayStrip.set('source', 'Cutaway Clip');
-    cutawayStrip.set('startFrame', 30);
-    cutawayStrip.set('length', 50);
-
-    const rootTracks = new Y.Array<YTrackIdList>();
-    const introTrack = new Y.Array<string>();
-    introTrack.push([introStripId]);
-    const montageTrack = new Y.Array<string>();
-    montageTrack.push([montageStripId]);
-    const nestedFolderTrack = new Y.Array<string>();
-    nestedFolderTrack.push([nestedFolderId]);
-    rootTracks.push([introTrack, montageTrack, nestedFolderTrack]);
-
-    const nestedTracks = new Y.Array<YTrackIdList>();
-    const bRollTrack = new Y.Array<string>();
-    bRollTrack.push([bRollStripId, bRollStripAltId]);
-    const cutawayTrack = new Y.Array<string>();
-    cutawayTrack.push([cutawayStripId]);
-    nestedTracks.push([bRollTrack, cutawayTrack]);
-
-    this.yEntities.set(rootId, rootEntity);
-    this.yEntities.set(introStripId, introStrip);
-    this.yEntities.set(montageStripId, montageStrip);
-    this.yEntities.set(nestedFolderId, nestedFolder);
-    this.yEntities.set(bRollStripId, bRollStrip);
-    this.yEntities.set(bRollStripAltId, bRollStripAlt);
-    this.yEntities.set(cutawayStripId, cutawayStrip);
-
-    this.yFolderTracks.set(rootId, rootTracks);
-    this.yFolderTracks.set(nestedFolderId, nestedTracks);
-
-    this.yRoot.set('rootId', rootId);
-    this.yRoot.set('demoSeedVersion', DEMO_SEED_VERSION);
+  private mutateSnapshot(
+    mutator: (snapshot: TimelineSnapshot) => void,
+    normalizeOptions?: { preferredPlacementIds?: string[]; preferredFolderSourceIds?: string[] },
+  ): void {
+    this.doc.transact(() => {
+      const workingSnapshot = this.buildSnapshot() ?? createDemoTimelineSnapshot();
+      mutator(workingSnapshot);
+      const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
+      this.writeSnapshotToYjs(normalized);
+      this.publishSnapshot(normalized);
+    });
   }
 
-  private resolveFolderId(folderId?: string): string | null {
-    if (!folderId) {
-      const rootId = this.yRoot.get('rootId');
-      return typeof rootId === 'string' ? rootId : null;
+  private buildSnapshot(): TimelineSnapshot | null {
+    const rawSnapshot = this.readSnapshotFromYjs();
+    if (!rawSnapshot) {
+      return null;
     }
-    return this.yEntities.has(folderId) ? folderId : null;
+    return normalizeTimelineSnapshot(rawSnapshot);
   }
 
-  private ensureTrackList(folderId: string): YTrackList {
-    let trackList = this.yFolderTracks.get(folderId);
-    if (!trackList) {
-      trackList = new Y.Array<YTrackIdList>();
-      this.yFolderTracks.set(folderId, trackList);
-    }
-    return trackList;
-  }
-
-  private findItemLocationById(itemId: string): ItemLocation | null {
-    for (const [folderId, trackList] of this.yFolderTracks.entries()) {
-      for (let trackIndex = 0; trackIndex < trackList.length; trackIndex++) {
-        const track = trackList.get(trackIndex);
-        if (!track) {
-          continue;
-        }
-
-        for (let entryIndex = 0; entryIndex < track.length; entryIndex++) {
-          const entryId = track.get(entryIndex);
-          if (entryId === itemId) {
-            return {
-              parentFolderId: folderId,
-              trackIndex,
-              entryIndex,
-            };
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private deleteEntityAndDescendants(itemId: string): void {
-    const entity = this.yEntities.get(itemId);
-    if (!entity) {
-      return;
-    }
-
-    if (entity.get('type') === 'folder') {
-      const trackList = this.yFolderTracks.get(itemId);
-      if (trackList) {
-        const childIds = new Set<string>();
-        for (const track of trackList.toArray()) {
-          for (const entryId of track.toArray()) {
-            childIds.add(entryId);
-          }
-        }
-        for (const childId of childIds) {
-          this.deleteEntityAndDescendants(childId);
-        }
-      }
-      this.yFolderTracks.delete(itemId);
-    }
-
-    this.yEntities.delete(itemId);
-  }
-
-  private convertEntityToJs(entity: YEntity): TimelineEntity | null {
-    const id = entity.get('id');
-    const type = entity.get('type');
-    if (typeof id !== 'string' || !type) {
+  private readSnapshotFromYjs(): TimelineSnapshot | null {
+    const rootFolderSourceId = this.yRoot.get('rootFolderSourceId');
+    if (typeof rootFolderSourceId !== 'string' || rootFolderSourceId.length === 0) {
       return null;
     }
 
-    if (type === 'strip') {
-      const source = entity.get('source');
-      const startFrame = entity.get('startFrame');
-      const length = entity.get('length');
-      if (
-        typeof source !== 'string' ||
-        typeof startFrame !== 'number' ||
-        typeof length !== 'number'
-      ) {
-        return null;
-      }
-      return {
-        id,
-        type: 'strip',
-        source,
-        startFrame,
-        length,
+    const timeScale = this.yRoot.get('timeScale');
+    const nextOrdinal = this.yRoot.get('nextOrdinal');
+    const normalizeVersion = this.yRoot.get('normalizeVersion');
+
+    const root: TimelineSnapshot['root'] = {
+      schemaVersion: 1,
+      rootFolderSourceId,
+      timeScale: typeof timeScale === 'number' ? timeScale : 0,
+      nextOrdinal: typeof nextOrdinal === 'number' ? nextOrdinal : 0,
+      normalizeVersion: typeof normalizeVersion === 'number' ? (normalizeVersion as 1) : 1,
+    };
+
+    const stripSources: TimelineSnapshot['stripSources'] = {};
+    for (const [sourceId, ySource] of this.yStripSources.entries()) {
+      stripSources[sourceId] = {
+        id: typeof ySource.get('id') === 'string' ? (ySource.get('id') as string) : sourceId,
+        type: 'strip-source',
+        kind:
+          typeof ySource.get('kind') === 'string'
+            ? ((ySource.get('kind') as StripSource['kind']) ?? 'unknown')
+            : 'unknown',
+        name: typeof ySource.get('name') === 'string' ? (ySource.get('name') as string) : '',
+        availableDurationTicks:
+          typeof ySource.get('availableDurationTicks') === 'number'
+            ? (ySource.get('availableDurationTicks') as number)
+            : undefined,
+        metadata: this.asRecord(ySource.get('metadata')),
       };
     }
 
-    if (type === 'folder') {
-      const name = entity.get('name');
-      const startFrame = entity.get('startFrame');
-      const length = entity.get('length');
-      if (
-        typeof name !== 'string' ||
-        typeof startFrame !== 'number' ||
-        typeof length !== 'number'
-      ) {
-        return null;
-      }
-      const root = entity.get('root');
-      const rootFlag = typeof root === 'boolean' ? root : false;
-      return {
-        id,
-        type: 'folder',
-        name,
-        startFrame,
-        length,
-        root: rootFlag,
+    const folderChildren: TimelineSnapshot['folderChildren'] = {};
+    for (const [folderSourceId, yChildList] of this.yFolderChildren.entries()) {
+      folderChildren[folderSourceId] = yChildList.toArray();
+    }
+
+    const folderSources: TimelineSnapshot['folderSources'] = {};
+    for (const [sourceId, ySource] of this.yFolderSources.entries()) {
+      folderSources[sourceId] = {
+        id: typeof ySource.get('id') === 'string' ? (ySource.get('id') as string) : sourceId,
+        type: 'folder-source',
+        name: typeof ySource.get('name') === 'string' ? (ySource.get('name') as string) : '',
+        bodyTrackCount:
+          typeof ySource.get('bodyTrackCount') === 'number'
+            ? (ySource.get('bodyTrackCount') as number)
+            : 0,
+        childPlacementIds: [...(folderChildren[sourceId] ?? [])],
       };
     }
 
-    return null;
-  }
-
-  private buildSnapshot(): FlatTimelineSnapshot | null {
-    const rootId = this.yRoot.get('rootId');
-    if (typeof rootId !== 'string' || !rootId) {
-      return null;
-    }
-
-    const entities: Record<string, TimelineEntity> = {};
-    for (const [id, entity] of this.yEntities.entries()) {
-      const parsed = this.convertEntityToJs(entity);
-      if (parsed) {
-        entities[id] = parsed;
+    const placements: TimelineSnapshot['placements'] = {};
+    for (const [placementId, yPlacement] of this.yPlacements.entries()) {
+      const type = yPlacement.get('type');
+      if (type === 'strip-placement') {
+        placements[placementId] = {
+          id:
+            typeof yPlacement.get('id') === 'string'
+              ? (yPlacement.get('id') as string)
+              : placementId,
+          type: 'strip-placement',
+          sourceId:
+            typeof yPlacement.get('sourceId') === 'string'
+              ? (yPlacement.get('sourceId') as string)
+              : '',
+          sourceOffsetTicks:
+            typeof yPlacement.get('sourceOffsetTicks') === 'number'
+              ? (yPlacement.get('sourceOffsetTicks') as number)
+              : 0,
+          durationTicks:
+            typeof yPlacement.get('durationTicks') === 'number'
+              ? (yPlacement.get('durationTicks') as number)
+              : 0,
+          startTick:
+            typeof yPlacement.get('startTick') === 'number'
+              ? (yPlacement.get('startTick') as number)
+              : 0,
+          startRow:
+            typeof yPlacement.get('startRow') === 'number'
+              ? (yPlacement.get('startRow') as number)
+              : 0,
+          laneSpan:
+            typeof yPlacement.get('laneSpan') === 'number'
+              ? (yPlacement.get('laneSpan') as number)
+              : 1,
+          ordinal:
+            typeof yPlacement.get('ordinal') === 'number'
+              ? (yPlacement.get('ordinal') as number)
+              : 0,
+        };
+        continue;
       }
-    }
 
-    const folderTracks: Record<string, string[][]> = {};
-    for (const [folderId, trackList] of this.yFolderTracks.entries()) {
-      const tracks = trackList.map((track) => track.toArray());
-      folderTracks[folderId] = tracks;
+      if (type === 'folder-placement') {
+        placements[placementId] = {
+          id:
+            typeof yPlacement.get('id') === 'string'
+              ? (yPlacement.get('id') as string)
+              : placementId,
+          type: 'folder-placement',
+          sourceId:
+            typeof yPlacement.get('sourceId') === 'string'
+              ? (yPlacement.get('sourceId') as string)
+              : '',
+          durationTicks:
+            typeof yPlacement.get('durationTicks') === 'number'
+              ? (yPlacement.get('durationTicks') as number)
+              : 0,
+          startTick:
+            typeof yPlacement.get('startTick') === 'number'
+              ? (yPlacement.get('startTick') as number)
+              : 0,
+          startRow:
+            typeof yPlacement.get('startRow') === 'number'
+              ? (yPlacement.get('startRow') as number)
+              : 0,
+          ordinal:
+            typeof yPlacement.get('ordinal') === 'number'
+              ? (yPlacement.get('ordinal') as number)
+              : 0,
+        };
+      }
     }
 
     return {
-      rootId,
-      entities,
-      folderTracks,
+      root,
+      stripSources,
+      folderSources,
+      folderChildren,
+      placements,
     };
+  }
+
+  private writeSnapshotToYjs(snapshot: TimelineSnapshot): void {
+    this.clearDocument();
+
+    for (const [key, value] of Object.entries(snapshot.root)) {
+      this.yRoot.set(key, value);
+    }
+
+    for (const [sourceId, source] of Object.entries(snapshot.stripSources)) {
+      const ySource = new Y.Map<unknown>() as YStripSourceMap;
+      this.writeRecordToSharedMap(ySource as unknown as YWritableMap, source);
+      this.yStripSources.set(sourceId, ySource);
+    }
+
+    for (const [sourceId, source] of Object.entries(snapshot.folderSources)) {
+      const ySource = new Y.Map<unknown>() as YFolderSourceMap;
+      this.writeRecordToSharedMap(ySource as unknown as YWritableMap, {
+        id: source.id,
+        type: source.type,
+        name: source.name,
+        bodyTrackCount: source.bodyTrackCount,
+      });
+      this.yFolderSources.set(sourceId, ySource);
+    }
+
+    for (const [folderSourceId, childPlacementIds] of Object.entries(snapshot.folderChildren)) {
+      const yChildList = new Y.Array<string>() as YFolderChildrenArray;
+      yChildList.push(childPlacementIds);
+      this.yFolderChildren.set(folderSourceId, yChildList);
+    }
+
+    for (const [placementId, placement] of Object.entries(snapshot.placements)) {
+      const yPlacement = new Y.Map<unknown>() as YPlacementMap;
+      this.writeRecordToSharedMap(yPlacement as unknown as YWritableMap, placement);
+      this.yPlacements.set(placementId, yPlacement);
+    }
+  }
+
+  private clearDocument(): void {
+    this.yRoot.clear();
+    this.yStripSources.clear();
+    this.yFolderSources.clear();
+    this.yFolderChildren.clear();
+    this.yPlacements.clear();
+  }
+
+  private writeRecordToSharedMap(sharedMap: YWritableMap, record: object): void {
+    for (const [key, value] of Object.entries(record)) {
+      if (value !== undefined) {
+        sharedMap.set(key, value);
+      }
+    }
+  }
+
+  private resolveFolderId(folderId: string | undefined, snapshot: TimelineSnapshot): string | null {
+    if (!folderId) {
+      return snapshot.root.rootFolderSourceId;
+    }
+    return folderId in snapshot.folderSources ? folderId : null;
+  }
+
+  private findParentFolderSourceId(itemId: string, snapshot: TimelineSnapshot): string | null {
+    for (const folderSource of Object.values(snapshot.folderSources)) {
+      if (folderSource.childPlacementIds.includes(itemId)) {
+        return folderSource.id;
+      }
+    }
+    return null;
+  }
+
+  private findItemLocationById(itemId: string, snapshot: TimelineSnapshot): ItemLocation | null {
+    for (const folderSource of Object.values(snapshot.folderSources)) {
+      const entryIndex = folderSource.childPlacementIds.indexOf(itemId);
+      if (entryIndex === -1) {
+        continue;
+      }
+
+      const placement = snapshot.placements[itemId];
+      if (!placement) {
+        continue;
+      }
+
+      return {
+        parentFolderId: folderSource.id,
+        trackIndex: placement.startRow,
+        entryIndex,
+      };
+    }
+
+    return null;
+  }
+
+  private insertPlacementIntoFolder(
+    snapshot: TimelineSnapshot,
+    folderSourceId: string,
+    placementId: string,
+    position?: number,
+  ): void {
+    const folderSource = snapshot.folderSources[folderSourceId];
+    const childPlacementIds = [
+      ...(snapshot.folderChildren[folderSourceId] ?? folderSource.childPlacementIds),
+    ];
+    const insertIndex = this.normalizeInsertIndex(position, childPlacementIds.length);
+    childPlacementIds.splice(insertIndex, 0, placementId);
+    folderSource.childPlacementIds = childPlacementIds;
+    snapshot.folderChildren[folderSourceId] = childPlacementIds;
+  }
+
+  private removePlacementFromFolder(
+    snapshot: TimelineSnapshot,
+    folderSourceId: string,
+    placementId: string,
+  ): void {
+    const folderSource = snapshot.folderSources[folderSourceId];
+    if (!folderSource) {
+      return;
+    }
+
+    const childPlacementIds = folderSource.childPlacementIds.filter(
+      (childId) => childId !== placementId,
+    );
+    folderSource.childPlacementIds = childPlacementIds;
+    snapshot.folderChildren[folderSourceId] = childPlacementIds;
   }
 
   private normalizeInsertIndex(position: number | undefined, length: number): number {
@@ -702,17 +886,14 @@ export class YjsTimelineService {
     return Math.floor(position);
   }
 
-  private clampInsertIndex(index: number, length: number): number {
-    if (index < 0) {
-      return 0;
+  private asRecord(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
     }
-    if (index > length) {
-      return length;
-    }
-    return index;
+    return { ...(value as Record<string, unknown>) };
   }
 
-  private publishSnapshot(snapshot: FlatTimelineSnapshot | null): void {
+  private publishSnapshot(snapshot: TimelineSnapshot | null): void {
     this.latestSnapshot = snapshot;
     for (const listener of this.timelineSubscribers) {
       listener(snapshot);
