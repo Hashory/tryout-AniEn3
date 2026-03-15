@@ -42,6 +42,7 @@ const SOURCE_A = 'source-a';
 const SOURCE_B = 'source-b';
 const PLACEMENT_1 = 'placement-1';
 const PLACEMENT_2 = 'placement-2';
+const PLACEMENT_3 = 'placement-3';
 const PLACEMENT_F = 'placement-folder';
 
 describe('normalizeTimelineSnapshot', () => {
@@ -545,6 +546,132 @@ describe('normalizeTimelineSnapshot', () => {
       // Both placements should exist and remain at tick 0 (different rows, no collision).
       expect(result.placements[PLACEMENT_1]?.startTick).toBe(0);
       expect(result.placements[PLACEMENT_2]?.startTick).toBe(0);
+    });
+
+    it('resolves cascading collisions deterministically for three same-row strips', () => {
+      const snapshot = makeMinimalSnapshot();
+      snapshot.stripSources[SOURCE_A] = {
+        id: SOURCE_A,
+        type: 'strip-source',
+        kind: 'media',
+        name: 'A',
+      };
+      snapshot.stripSources[SOURCE_B] = {
+        id: SOURCE_B,
+        type: 'strip-source',
+        kind: 'media',
+        name: 'B',
+      };
+      snapshot.stripSources['source-c'] = {
+        id: 'source-c',
+        type: 'strip-source',
+        kind: 'media',
+        name: 'C',
+      };
+
+      snapshot.placements[PLACEMENT_1] = {
+        id: PLACEMENT_1,
+        type: 'strip-placement',
+        sourceId: SOURCE_A,
+        sourceOffsetTicks: 0,
+        durationTicks: 50,
+        startTick: 0,
+        startRow: 0,
+        laneSpan: 1,
+        ordinal: 0,
+      };
+      snapshot.placements[PLACEMENT_2] = {
+        id: PLACEMENT_2,
+        type: 'strip-placement',
+        sourceId: SOURCE_B,
+        sourceOffsetTicks: 0,
+        durationTicks: 50,
+        startTick: 0,
+        startRow: 0,
+        laneSpan: 1,
+        ordinal: 1,
+      };
+      snapshot.placements[PLACEMENT_3] = {
+        id: PLACEMENT_3,
+        type: 'strip-placement',
+        sourceId: 'source-c',
+        sourceOffsetTicks: 0,
+        durationTicks: 50,
+        startTick: 0,
+        startRow: 0,
+        laneSpan: 1,
+        ordinal: 2,
+      };
+      snapshot.folderSources['root-folder'].childPlacementIds = [
+        PLACEMENT_1,
+        PLACEMENT_2,
+        PLACEMENT_3,
+      ];
+      snapshot.folderChildren['root-folder'] = [PLACEMENT_1, PLACEMENT_2, PLACEMENT_3];
+
+      const result = normalizeTimelineSnapshot(snapshot);
+      const placements = [PLACEMENT_1, PLACEMENT_2, PLACEMENT_3]
+        .map((id) => result.placements[id])
+        .filter((placement): placement is NonNullable<typeof placement> => Boolean(placement))
+        .sort((left, right) => left.startTick - right.startTick);
+
+      expect(placements).toHaveLength(3);
+      expect(placements[0].startTick).toBe(0);
+      expect(placements[1].startTick).toBe(50);
+      expect(placements[2].startTick).toBe(100);
+    });
+
+    it('pushes a lower-row sibling when overlapped by a laneSpan strip', () => {
+      const snapshot = makeMinimalSnapshot();
+      snapshot.stripSources[SOURCE_A] = {
+        id: SOURCE_A,
+        type: 'strip-source',
+        kind: 'media',
+        name: 'A',
+      };
+      snapshot.stripSources[SOURCE_B] = {
+        id: SOURCE_B,
+        type: 'strip-source',
+        kind: 'media',
+        name: 'B',
+      };
+
+      snapshot.placements[PLACEMENT_1] = {
+        id: PLACEMENT_1,
+        type: 'strip-placement',
+        sourceId: SOURCE_A,
+        sourceOffsetTicks: 0,
+        durationTicks: 100,
+        startTick: 0,
+        startRow: 0,
+        laneSpan: 2,
+        ordinal: 0,
+      };
+      snapshot.placements[PLACEMENT_2] = {
+        id: PLACEMENT_2,
+        type: 'strip-placement',
+        sourceId: SOURCE_B,
+        sourceOffsetTicks: 0,
+        durationTicks: 70,
+        startTick: 20,
+        startRow: 1,
+        laneSpan: 1,
+        ordinal: 1,
+      };
+      snapshot.folderSources['root-folder'].childPlacementIds = [PLACEMENT_1, PLACEMENT_2];
+      snapshot.folderChildren['root-folder'] = [PLACEMENT_1, PLACEMENT_2];
+
+      const result = normalizeTimelineSnapshot(snapshot);
+      const upper = result.placements[PLACEMENT_1];
+      const lower = result.placements[PLACEMENT_2];
+
+      expect(upper).toBeDefined();
+      expect(lower).toBeDefined();
+      if (!upper || !lower) {
+        return;
+      }
+
+      expect(lower.startTick).toBeGreaterThanOrEqual(upper.startTick + upper.durationTicks);
     });
   });
 
