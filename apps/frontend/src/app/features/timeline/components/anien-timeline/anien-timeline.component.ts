@@ -78,6 +78,10 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
               (keydown.space)="onItemKeydown($event, item.id)"
             >
               <div
+                class="resize-handle top"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
+              ></div>
+              <div
                 class="resize-handle left"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
               ></div>
@@ -85,6 +89,10 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
               <div
                 class="resize-handle right"
                 (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
+              ></div>
+              <div
+                class="resize-handle bottom"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
               ></div>
             </div>
           } @else {
@@ -411,6 +419,8 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         right: 0;
       }
 
+      .timeline-main .strip .resize-handle.top,
+      .timeline-main .strip .resize-handle.bottom,
       .timeline-main .folder .resize-handle.top,
       .timeline-main .folder .resize-handle.bottom {
         left: 0;
@@ -420,11 +430,13 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         cursor: row-resize;
       }
 
+      .timeline-main .strip .resize-handle.top,
       .timeline-main .folder .resize-handle.top {
         top: 0;
         bottom: auto;
       }
 
+      .timeline-main .strip .resize-handle.bottom,
       .timeline-main .folder .resize-handle.bottom {
         top: auto;
         bottom: 0;
@@ -770,7 +782,7 @@ export class AnienTimelineComponent {
 
   public onVerticalResizeMouseDown(
     event: MouseEvent,
-    item: FolderVM,
+    item: FolderVM | StripVM,
     side: 'top' | 'bottom',
   ): void {
     event.stopPropagation();
@@ -780,13 +792,13 @@ export class AnienTimelineComponent {
     this.dragState = {
       type: side === 'top' ? 'resize-top' : 'resize-bottom',
       itemId: item.id,
-      itemType: 'folder',
+      itemType: item.type,
       startX: event.clientX,
       startY: event.clientY,
       initialStartTick: item.startTick,
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
-      initialBodyTrackCount: item.bodyTrackCount,
+      initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : item.laneSpan,
       appliedDeltaTicks: 0,
       appliedDeltaRows: 0,
     };
@@ -934,24 +946,35 @@ export class AnienTimelineComponent {
     }
 
     if (this.dragState.type === 'resize-bottom') {
-      const nextBodyTrackCount = Math.max(
-        1,
-        this.dragState.initialBodyTrackCount + currentDeltaRows,
-      );
-      this.stateService.updateFolder(this.dragState.itemId, {
-        bodyTrackCount: nextBodyTrackCount,
-      });
+      const rawSpan = Math.max(1, this.dragState.initialBodyTrackCount + currentDeltaRows);
+      // Strips are limited to 1 or 2 rows at the UI level.
+      const nextSpan = this.dragState.itemType === 'strip' ? Math.min(2, rawSpan) : rawSpan;
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, { laneSpan: nextSpan });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, { bodyTrackCount: nextSpan });
+      }
       this.dragState.appliedDeltaRows = currentDeltaRows;
       this.requestRender();
       return;
     }
 
-    const nextBodyTrackCount = Math.max(1, this.dragState.initialBodyTrackCount - currentDeltaRows);
+    // resize-top
+    const rawSpan = Math.max(1, this.dragState.initialBodyTrackCount - currentDeltaRows);
+    // Strips are limited to 1 or 2 rows at the UI level.
+    const nextSpan = this.dragState.itemType === 'strip' ? Math.min(2, rawSpan) : rawSpan;
     const nextStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
-    this.stateService.updateFolder(this.dragState.itemId, {
-      bodyTrackCount: nextBodyTrackCount,
-      startRow: nextStartRow,
-    });
+    if (this.dragState.itemType === 'strip') {
+      this.stateService.updateStrip(this.dragState.itemId, {
+        laneSpan: nextSpan,
+        startRow: nextStartRow,
+      });
+    } else {
+      this.stateService.updateFolder(this.dragState.itemId, {
+        bodyTrackCount: nextSpan,
+        startRow: nextStartRow,
+      });
+    }
     this.dragState.appliedDeltaRows = currentDeltaRows;
     this.requestRender();
   }
