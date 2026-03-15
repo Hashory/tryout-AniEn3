@@ -381,6 +381,7 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         background-color: #024b71;
         color: #cbe6ff;
         align-content: center;
+        box-sizing: border-box;
         padding: 0 var(--timeline-strip-padding-x);
         border-radius: 5px;
         position: absolute;
