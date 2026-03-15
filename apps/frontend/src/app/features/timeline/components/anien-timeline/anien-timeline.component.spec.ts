@@ -99,6 +99,22 @@ describe('AnienTimelineComponent', () => {
     expect(stripElement?.style.width).toBe('calc(var(--timeline-tick-size) * 45)');
   });
 
+  it('renders strips with border-box sizing to avoid visual overlap from horizontal padding', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+
+    const stripElement = fixture.nativeElement.querySelector(
+      '.timeline-main .strip',
+    ) as HTMLElement | null;
+
+    expect(stripElement).toBeTruthy();
+    if (!stripElement) {
+      return;
+    }
+
+    expect(window.getComputedStyle(stripElement).boxSizing).toBe('border-box');
+  });
+
   it('keeps same-row strips non-overlapping after drag move toward the left', () => {
     stateService.resetToDemoTimeline();
     const rootFolderSourceId = stateService.rootFolderSourceId();
