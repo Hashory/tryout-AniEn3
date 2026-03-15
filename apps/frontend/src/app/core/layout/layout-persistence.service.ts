@@ -22,7 +22,11 @@ export class LayoutPersistenceService {
   private cachedState: TimelineLayoutState | null = null;
 
   private get hasBrowserStorage(): boolean {
-    return typeof window !== 'undefined' && !!window.localStorage;
+    try {
+      return typeof window !== 'undefined' && !!window.localStorage;
+    } catch {
+      return false;
+    }
   }
 
   loadState(): TimelineLayoutState | null {
@@ -34,12 +38,12 @@ export class LayoutPersistenceService {
       return this.cachedState;
     }
 
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
     try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return null;
+      }
+
       const parsed = JSON.parse(raw) as TimelineLayoutState;
       this.cachedState = parsed;
       return parsed;
@@ -67,6 +71,10 @@ export class LayoutPersistenceService {
     };
 
     this.cachedState = merged;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    } catch {
+      // Ignore errors when saving to localStorage
+    }
   }
 }
