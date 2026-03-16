@@ -14,6 +14,36 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
 import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
 
+interface SnapGuideState {
+  tick: number | null;
+  row: number | null;
+}
+
+interface TimelineBounds {
+  startTick: number;
+  endTick: number;
+  startRow: number;
+  endRow: number;
+}
+
+interface ItemDragState {
+  type: 'move' | 'resize-left' | 'resize-right' | 'resize-top' | 'resize-bottom';
+  itemId: string;
+  itemType: 'strip' | 'folder';
+  startX: number;
+  startY: number;
+  initialStartTick: number;
+  initialStartRow: number;
+  initialDurationTicks: number;
+  initialBodyTrackCount: number;
+  initialRowSpan: number;
+  parentAbsoluteStartTick: number;
+  parentAbsoluteStartRow: number;
+  excludedCollisionIds: Set<string>;
+  appliedDeltaTicks: number;
+  appliedDeltaRows: number;
+}
+
 @Component({
   selector: 'app-anien-timeline',
   host: {
@@ -68,6 +98,21 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
           class="playhead-line"
           [style.left]="'calc(var(--timeline-tick-size) * ' + currentTick() + ')'"
         ></div>
+
+        @if (snapGuideState(); as snapGuide) {
+          @if (snapGuide.tick !== null) {
+            <div
+              class="snap-guide-vertical"
+              [style.left]="'calc(var(--timeline-tick-size) * ' + snapGuide.tick + ')'"
+            ></div>
+          }
+          @if (snapGuide.row !== null) {
+            <div
+              class="snap-guide-horizontal"
+              [style.top]="'calc(var(--timeline-track-height) * ' + snapGuide.row + ')'"
+            ></div>
+          }
+        }
 
         @for (item of timelineItems(); track item.id) {
           @if (item.type === 'strip') {
@@ -368,6 +413,27 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         background-color: #ff3333;
         z-index: 30000;
         pointer-events: none;
+      }
+
+      .timeline-main .snap-guide-vertical,
+      .timeline-main .snap-guide-horizontal {
+        position: absolute;
+        pointer-events: none;
+        z-index: 29999;
+      }
+
+      .timeline-main .snap-guide-vertical {
+        inset: 0 auto 0 0;
+        width: 1px;
+        background: #8dd7ff;
+        box-shadow: 0 0 8px rgba(141, 215, 255, 0.75);
+      }
+
+      .timeline-main .snap-guide-horizontal {
+        inset: 0 0 auto 0;
+        height: 1px;
+        background: #88f6a8;
+        box-shadow: 0 0 8px rgba(136, 246, 168, 0.75);
       }
 
       .timeline-sidebar {
@@ -677,23 +743,16 @@ export class AnienTimelineComponent implements OnDestroy {
   @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
 
   private readonly TRACK_HEIGHT = 34;
+  private readonly HORIZONTAL_SNAP_THRESHOLD_PX = 10;
+  private readonly VERTICAL_SNAP_THRESHOLD_PX = 10;
+  private readonly DRAG_ACTIVATION_THRESHOLD_PX = 3;
+  private readonly STRIP_MAX_LANE_SPAN = 2;
 
   public readonly debugPanelVisible = signal(false);
   public readonly snapshotCopyLabel = signal('Copy Snapshot JSON');
+  public readonly snapGuideState = signal<SnapGuideState | null>(null);
 
-  private dragState: {
-    type: 'move' | 'resize-left' | 'resize-right' | 'resize-top' | 'resize-bottom';
-    itemId: string;
-    itemType: 'strip' | 'folder';
-    startX: number;
-    startY: number;
-    initialStartTick: number;
-    initialStartRow: number;
-    initialDurationTicks: number;
-    initialBodyTrackCount: number;
-    appliedDeltaTicks: number;
-    appliedDeltaRows: number;
-  } | null = null;
+  private dragState: ItemDragState | null = null;
 
   private mouseDownState: {
     startX: number;
@@ -725,6 +784,8 @@ export class AnienTimelineComponent implements OnDestroy {
       window.clearTimeout(this.snapshotCopyResetTimeoutId);
       this.snapshotCopyResetTimeoutId = null;
     }
+
+    this.snapGuideState.set(null);
   }
 
   public addTrack(): void {
@@ -807,6 +868,10 @@ export class AnienTimelineComponent implements OnDestroy {
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
       initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : 0,
+      initialRowSpan: item.type === 'folder' ? item.rowSpan : item.rowSpan,
+      parentAbsoluteStartTick: item.parentStartTick,
+      parentAbsoluteStartRow: item.absoluteStartRow - item.startRow,
+      excludedCollisionIds: this.createExcludedCollisionIds(item),
       appliedDeltaTicks: 0,
       appliedDeltaRows: 0,
     };
@@ -835,6 +900,10 @@ export class AnienTimelineComponent implements OnDestroy {
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
       initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : item.laneSpan,
+      initialRowSpan: item.type === 'folder' ? item.rowSpan : item.rowSpan,
+      parentAbsoluteStartTick: item.parentStartTick,
+      parentAbsoluteStartRow: item.absoluteStartRow - item.startRow,
+      excludedCollisionIds: this.createExcludedCollisionIds(item),
       appliedDeltaTicks: 0,
       appliedDeltaRows: 0,
     };
@@ -891,6 +960,7 @@ export class AnienTimelineComponent implements OnDestroy {
     this.isSpacePressed = false;
     this.onWindowMouseUp();
     this.rulerDragState = null;
+    this.snapGuideState.set(null);
     window.removeEventListener('mousemove', this.onRulerMouseMove);
     window.removeEventListener('mouseup', this.onRulerMouseUp);
   }
@@ -912,7 +982,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
     const deltaX = Math.abs(event.clientX - this.mouseDownState.startX);
     const deltaY = Math.abs(event.clientY - this.mouseDownState.startY);
-    if (deltaX > 3 || deltaY > 3) {
+    if (deltaX > this.DRAG_ACTIVATION_THRESHOLD_PX || deltaY > this.DRAG_ACTIVATION_THRESHOLD_PX) {
       this.startMoveDrag();
     }
   };
@@ -938,10 +1008,91 @@ export class AnienTimelineComponent implements OnDestroy {
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
       initialBodyTrackCount: item.type === 'folder' ? item.bodyTrackCount : 0,
+      initialRowSpan: item.type === 'folder' ? item.rowSpan : item.rowSpan,
+      parentAbsoluteStartTick: item.parentStartTick,
+      parentAbsoluteStartRow: item.absoluteStartRow - item.startRow,
+      excludedCollisionIds: this.createExcludedCollisionIds(item),
       appliedDeltaTicks: 0,
       appliedDeltaRows: 0,
     };
+
+    this.applyInitialMoveSnap();
     this.mouseDownState = null;
+  }
+
+  private applyInitialMoveSnap(): void {
+    if (!this.dragState || this.dragState.type !== 'move') {
+      return;
+    }
+
+    const collisionBounds = this.collectForbiddenBounds(this.dragState.excludedCollisionIds);
+    const horizontalSnap = this.resolveHorizontalMoveSnap(
+      this.dragState.initialStartTick,
+      this.dragState.initialDurationTicks,
+      this.dragState.parentAbsoluteStartTick,
+      this.dragState.excludedCollisionIds,
+    );
+
+    let snappedStartTick = horizontalSnap?.startTick ?? this.dragState.initialStartTick;
+    let snappedStartRow = this.dragState.initialStartRow;
+    const guideTick = horizontalSnap?.guideTick ?? null;
+    let guideRow: number | null = null;
+
+    if (this.dragState.itemType === 'folder') {
+      const verticalSnap = this.resolveFolderMoveVerticalSnap(
+        this.dragState.initialStartRow,
+        this.dragState.initialRowSpan,
+        this.dragState.parentAbsoluteStartRow,
+        this.dragState.excludedCollisionIds,
+      );
+      if (verticalSnap) {
+        snappedStartRow = verticalSnap.startRow;
+        guideRow = verticalSnap.guideRow;
+      }
+    }
+
+    const snappedBounds = this.buildBounds(
+      snappedStartTick,
+      this.dragState.initialDurationTicks,
+      snappedStartRow,
+      this.dragState.initialRowSpan,
+      this.dragState,
+    );
+    if (!this.isAllowedBounds(snappedBounds, collisionBounds)) {
+      this.snapGuideState.set(null);
+      return;
+    }
+
+    snappedStartTick = Math.max(0, snappedStartTick);
+    snappedStartRow = Math.max(0, snappedStartRow);
+    const didSnapPositionChange =
+      snappedStartTick !== this.dragState.initialStartTick ||
+      snappedStartRow !== this.dragState.initialStartRow;
+
+    if (didSnapPositionChange) {
+      if (this.dragState.itemType === 'strip') {
+        this.stateService.updateStrip(this.dragState.itemId, {
+          startTick: snappedStartTick,
+          startRow: snappedStartRow,
+        });
+      } else {
+        this.stateService.updateFolder(this.dragState.itemId, {
+          startTick: snappedStartTick,
+          startRow: snappedStartRow,
+        });
+      }
+
+      this.dragState.initialStartTick = snappedStartTick;
+      this.dragState.initialStartRow = snappedStartRow;
+    }
+
+    if (guideTick === null && guideRow === null) {
+      this.snapGuideState.set(null);
+      return;
+    }
+
+    this.snapGuideState.set({ tick: guideTick, row: guideRow });
+    this.requestRender();
   }
 
   private handleDrag(event: MouseEvent): void {
@@ -960,14 +1111,65 @@ export class AnienTimelineComponent implements OnDestroy {
     const deltaRowsPixels = event.clientY - this.dragState.startY;
     const currentDeltaRows = Math.round(deltaRowsPixels / this.TRACK_HEIGHT);
     const diffRows = currentDeltaRows - this.dragState.appliedDeltaRows;
+    const collisionBounds = this.collectForbiddenBounds(this.dragState.excludedCollisionIds);
+
+    let nextSnapTick: number | null = null;
+    let nextSnapRow: number | null = null;
 
     if (this.dragState.type === 'move') {
       if (diffTicks === 0 && diffRows === 0) {
         return;
       }
 
-      const targetStartTick = Math.max(0, this.dragState.initialStartTick + currentDeltaTicks);
-      const targetStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
+      const targetStartTickRaw = Math.max(0, this.dragState.initialStartTick + currentDeltaTicks);
+      const targetStartRowRaw = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
+      const horizontalSnap = this.resolveHorizontalMoveSnap(
+        targetStartTickRaw,
+        this.dragState.initialDurationTicks,
+        this.dragState.parentAbsoluteStartTick,
+        this.dragState.excludedCollisionIds,
+      );
+      let targetStartTick = horizontalSnap?.startTick ?? targetStartTickRaw;
+      nextSnapTick = horizontalSnap?.guideTick ?? null;
+
+      let targetStartRow = targetStartRowRaw;
+      if (this.dragState.itemType === 'folder') {
+        const verticalSnap = this.resolveFolderMoveVerticalSnap(
+          targetStartRowRaw,
+          this.dragState.initialRowSpan,
+          this.dragState.parentAbsoluteStartRow,
+          this.dragState.excludedCollisionIds,
+        );
+        if (verticalSnap) {
+          targetStartRow = verticalSnap.startRow;
+          nextSnapRow = verticalSnap.guideRow;
+        }
+      }
+
+      const nextBounds = this.buildBounds(
+        targetStartTick,
+        this.dragState.initialDurationTicks,
+        targetStartRow,
+        this.dragState.initialRowSpan,
+        this.dragState,
+      );
+      if (!this.isAllowedBounds(nextBounds, collisionBounds)) {
+        this.snapGuideState.set(null);
+        return;
+      }
+
+      targetStartTick = Math.max(0, targetStartTick);
+      targetStartRow = Math.max(0, targetStartRow);
+      const appliedDeltaTicks = targetStartTick - this.dragState.initialStartTick;
+      const appliedDeltaRows = targetStartRow - this.dragState.initialStartRow;
+
+      if (
+        appliedDeltaTicks === this.dragState.appliedDeltaTicks &&
+        appliedDeltaRows === this.dragState.appliedDeltaRows
+      ) {
+        return;
+      }
+
       if (this.dragState.itemType === 'strip') {
         this.stateService.updateStrip(this.dragState.itemId, {
           startTick: targetStartTick,
@@ -979,8 +1181,9 @@ export class AnienTimelineComponent implements OnDestroy {
           startRow: targetStartRow,
         });
       }
-      this.dragState.appliedDeltaTicks = currentDeltaTicks;
-      this.dragState.appliedDeltaRows = currentDeltaRows;
+      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      this.dragState.appliedDeltaRows = appliedDeltaRows;
+      this.snapGuideState.set({ tick: nextSnapTick, row: nextSnapRow });
       this.requestRender();
       return;
     }
@@ -990,6 +1193,7 @@ export class AnienTimelineComponent implements OnDestroy {
         return;
       }
 
+      const initialEndTick = this.dragState.initialStartTick + this.dragState.initialDurationTicks;
       let nextStartTick = this.dragState.initialStartTick + currentDeltaTicks;
       let nextDurationTicks = this.dragState.initialDurationTicks - currentDeltaTicks;
 
@@ -1002,6 +1206,35 @@ export class AnienTimelineComponent implements OnDestroy {
         nextDurationTicks = this.dragState.initialStartTick + this.dragState.initialDurationTicks;
       }
 
+      const horizontalSnap = this.resolveHorizontalEdgeSnap(
+        this.dragState.parentAbsoluteStartTick + nextStartTick,
+        this.dragState.excludedCollisionIds,
+      );
+      if (horizontalSnap) {
+        const snappedRelativeStartTick =
+          horizontalSnap.tick - this.dragState.parentAbsoluteStartTick;
+        nextStartTick = Math.max(0, Math.min(snappedRelativeStartTick, initialEndTick - 1));
+        nextDurationTicks = initialEndTick - nextStartTick;
+        nextSnapTick = horizontalSnap.guideTick;
+      }
+
+      const nextBounds = this.buildBounds(
+        nextStartTick,
+        nextDurationTicks,
+        this.dragState.initialStartRow,
+        this.dragState.initialRowSpan,
+        this.dragState,
+      );
+      if (!this.isAllowedBounds(nextBounds, collisionBounds)) {
+        this.snapGuideState.set(null);
+        return;
+      }
+
+      const appliedDeltaTicks = nextStartTick - this.dragState.initialStartTick;
+      if (appliedDeltaTicks === this.dragState.appliedDeltaTicks) {
+        return;
+      }
+
       if (this.dragState.itemType === 'strip') {
         this.stateService.updateStrip(this.dragState.itemId, {
           startTick: nextStartTick,
@@ -1014,7 +1247,8 @@ export class AnienTimelineComponent implements OnDestroy {
         });
       }
 
-      this.dragState.appliedDeltaTicks = currentDeltaTicks;
+      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      this.snapGuideState.set({ tick: nextSnapTick, row: null });
       this.requestRender();
       return;
     }
@@ -1024,16 +1258,53 @@ export class AnienTimelineComponent implements OnDestroy {
         return;
       }
 
-      const nextDurationTicks = Math.max(
+      const nextDurationTicksRaw = Math.max(
         1,
         this.dragState.initialDurationTicks + currentDeltaTicks,
       );
+      let nextDurationTicks = nextDurationTicksRaw;
+      const nextEndTickRaw =
+        this.dragState.parentAbsoluteStartTick +
+        this.dragState.initialStartTick +
+        nextDurationTicksRaw;
+      const horizontalSnap = this.resolveHorizontalEdgeSnap(
+        nextEndTickRaw,
+        this.dragState.excludedCollisionIds,
+      );
+      if (horizontalSnap) {
+        const minimumEndTick =
+          this.dragState.parentAbsoluteStartTick + this.dragState.initialStartTick + 1;
+        const snappedEndTick = Math.max(horizontalSnap.tick, minimumEndTick);
+        nextDurationTicks =
+          snappedEndTick -
+          (this.dragState.parentAbsoluteStartTick + this.dragState.initialStartTick);
+        nextSnapTick = horizontalSnap.guideTick;
+      }
+
+      const nextBounds = this.buildBounds(
+        this.dragState.initialStartTick,
+        nextDurationTicks,
+        this.dragState.initialStartRow,
+        this.dragState.initialRowSpan,
+        this.dragState,
+      );
+      if (!this.isAllowedBounds(nextBounds, collisionBounds)) {
+        this.snapGuideState.set(null);
+        return;
+      }
+
+      const appliedDeltaTicks = nextDurationTicks - this.dragState.initialDurationTicks;
+      if (appliedDeltaTicks === this.dragState.appliedDeltaTicks) {
+        return;
+      }
+
       if (this.dragState.itemType === 'strip') {
         this.stateService.updateStrip(this.dragState.itemId, { durationTicks: nextDurationTicks });
       } else {
         this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
       }
-      this.dragState.appliedDeltaTicks = currentDeltaTicks;
+      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      this.snapGuideState.set({ tick: nextSnapTick, row: null });
       this.requestRender();
       return;
     }
@@ -1044,23 +1315,99 @@ export class AnienTimelineComponent implements OnDestroy {
 
     if (this.dragState.type === 'resize-bottom') {
       const rawSpan = Math.max(1, this.dragState.initialBodyTrackCount + currentDeltaRows);
-      // Strips are limited to 1 or 2 rows at the UI level.
-      const nextSpan = this.dragState.itemType === 'strip' ? Math.min(2, rawSpan) : rawSpan;
+      const nextSpanRaw =
+        this.dragState.itemType === 'strip' ? Math.min(this.STRIP_MAX_LANE_SPAN, rawSpan) : rawSpan;
+
+      let nextSpan = nextSpanRaw;
+      if (this.dragState.itemType === 'folder') {
+        const bottomSnap = this.resolveFolderBottomSnap(
+          this.dragState.initialStartRow,
+          nextSpanRaw,
+          this.dragState.parentAbsoluteStartRow,
+          this.dragState.excludedCollisionIds,
+        );
+        if (bottomSnap) {
+          nextSpan = bottomSnap.bodyTrackCount;
+          nextSnapRow = bottomSnap.guideRow;
+        }
+      }
+
+      const nextRowSpan = this.dragState.itemType === 'folder' ? 1 + nextSpan : nextSpan;
+      const nextBounds = this.buildBounds(
+        this.dragState.initialStartTick,
+        this.dragState.initialDurationTicks,
+        this.dragState.initialStartRow,
+        nextRowSpan,
+        this.dragState,
+      );
+      if (!this.isAllowedBounds(nextBounds, collisionBounds)) {
+        this.snapGuideState.set(null);
+        return;
+      }
+
+      const appliedDeltaRows = nextSpan - this.dragState.initialBodyTrackCount;
+      if (appliedDeltaRows === this.dragState.appliedDeltaRows) {
+        return;
+      }
+
       if (this.dragState.itemType === 'strip') {
         this.stateService.updateStrip(this.dragState.itemId, { laneSpan: nextSpan });
       } else {
         this.stateService.updateFolder(this.dragState.itemId, { bodyTrackCount: nextSpan });
       }
-      this.dragState.appliedDeltaRows = currentDeltaRows;
+      this.dragState.appliedDeltaRows = appliedDeltaRows;
+      this.snapGuideState.set({ tick: null, row: nextSnapRow });
       this.requestRender();
       return;
     }
 
     // resize-top
     const rawSpan = Math.max(1, this.dragState.initialBodyTrackCount - currentDeltaRows);
-    // Strips are limited to 1 or 2 rows at the UI level.
-    const nextSpan = this.dragState.itemType === 'strip' ? Math.min(2, rawSpan) : rawSpan;
-    const nextStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
+    const nextSpanRaw =
+      this.dragState.itemType === 'strip' ? Math.min(this.STRIP_MAX_LANE_SPAN, rawSpan) : rawSpan;
+    let nextSpan = nextSpanRaw;
+    let nextStartRow = Math.max(0, this.dragState.initialStartRow + currentDeltaRows);
+
+    if (this.dragState.itemType === 'folder') {
+      const topSnap = this.resolveFolderTopSnap(
+        nextStartRow,
+        this.dragState.parentAbsoluteStartRow,
+        this.dragState.excludedCollisionIds,
+      );
+      if (topSnap) {
+        const fixedBottomAbsoluteRow =
+          this.dragState.parentAbsoluteStartRow +
+          this.dragState.initialStartRow +
+          this.dragState.initialRowSpan;
+        const snappedStartAbsoluteRow = topSnap.startAbsoluteRow;
+        const snappedBodyTrackCount = Math.max(
+          1,
+          fixedBottomAbsoluteRow - snappedStartAbsoluteRow - 1,
+        );
+        nextStartRow = snappedStartAbsoluteRow - this.dragState.parentAbsoluteStartRow;
+        nextSpan = snappedBodyTrackCount;
+        nextSnapRow = topSnap.guideRow;
+      }
+    }
+
+    const nextRowSpan = this.dragState.itemType === 'folder' ? 1 + nextSpan : nextSpan;
+    const nextBounds = this.buildBounds(
+      this.dragState.initialStartTick,
+      this.dragState.initialDurationTicks,
+      nextStartRow,
+      nextRowSpan,
+      this.dragState,
+    );
+    if (!this.isAllowedBounds(nextBounds, collisionBounds)) {
+      this.snapGuideState.set(null);
+      return;
+    }
+
+    const appliedDeltaRows = nextStartRow - this.dragState.initialStartRow;
+    if (appliedDeltaRows === this.dragState.appliedDeltaRows) {
+      return;
+    }
+
     if (this.dragState.itemType === 'strip') {
       this.stateService.updateStrip(this.dragState.itemId, {
         laneSpan: nextSpan,
@@ -1072,7 +1419,8 @@ export class AnienTimelineComponent implements OnDestroy {
         startRow: nextStartRow,
       });
     }
-    this.dragState.appliedDeltaRows = currentDeltaRows;
+    this.dragState.appliedDeltaRows = appliedDeltaRows;
+    this.snapGuideState.set({ tick: null, row: nextSnapRow });
     this.requestRender();
   }
 
@@ -1083,6 +1431,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
     if (this.zoomDragState) {
       this.zoomDragState = null;
+      this.snapGuideState.set(null);
       return;
     }
 
@@ -1093,6 +1442,8 @@ export class AnienTimelineComponent implements OnDestroy {
       if (completedDrag.type === 'move') {
         this.finalizeMove(completedDrag.itemId);
       }
+
+      this.snapGuideState.set(null);
 
       return;
     }
@@ -1110,6 +1461,7 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     this.mouseDownState = null;
+    this.snapGuideState.set(null);
     this.requestRender();
   };
 
@@ -1437,5 +1789,304 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     return true;
+  }
+
+  private createExcludedCollisionIds(item: StripVM | FolderVM): Set<string> {
+    const excluded = new Set<string>([item.id]);
+    if (item.type === 'folder') {
+      for (const containedId of item.containedIds) {
+        excluded.add(containedId);
+      }
+    }
+    return excluded;
+  }
+
+  private collectForbiddenBounds(excludedIds: Set<string>): TimelineBounds[] {
+    const bounds: TimelineBounds[] = [];
+    for (const item of this.timelineItems()) {
+      if (excludedIds.has(item.id)) {
+        continue;
+      }
+
+      if (item.type === 'strip') {
+        bounds.push({
+          startTick: item.absoluteStartTick,
+          endTick: item.absoluteStartTick + item.durationTicks,
+          startRow: item.absoluteStartRow,
+          endRow: item.absoluteStartRow + item.rowSpan,
+        });
+        continue;
+      }
+
+      bounds.push({
+        startTick: item.absoluteStartTick,
+        endTick: item.absoluteStartTick + item.durationTicks,
+        startRow: item.absoluteStartRow,
+        endRow: item.absoluteStartRow + 1,
+      });
+    }
+
+    return bounds;
+  }
+
+  private buildBounds(
+    startTick: number,
+    durationTicks: number,
+    startRow: number,
+    rowSpan: number,
+    dragState: ItemDragState,
+  ): TimelineBounds {
+    const absoluteStartTick = dragState.parentAbsoluteStartTick + startTick;
+    const absoluteStartRow = dragState.parentAbsoluteStartRow + startRow;
+    return {
+      startTick: absoluteStartTick,
+      endTick: absoluteStartTick + durationTicks,
+      startRow: absoluteStartRow,
+      endRow: absoluteStartRow + rowSpan,
+    };
+  }
+
+  private isAllowedBounds(target: TimelineBounds, forbiddenBounds: TimelineBounds[]): boolean {
+    for (const forbidden of forbiddenBounds) {
+      const overlapsTicks =
+        target.startTick < forbidden.endTick && forbidden.startTick < target.endTick;
+      if (!overlapsTicks) {
+        continue;
+      }
+
+      const overlapsRows = target.startRow < forbidden.endRow && forbidden.startRow < target.endRow;
+      if (overlapsRows) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private collectHorizontalSnapTicks(excludedIds: Set<string>): number[] {
+    const candidates = new Set<number>([this.currentTick()]);
+    for (const item of this.timelineItems()) {
+      if (excludedIds.has(item.id)) {
+        continue;
+      }
+
+      candidates.add(item.absoluteStartTick);
+      candidates.add(item.absoluteStartTick + item.durationTicks);
+    }
+
+    return [...candidates];
+  }
+
+  private resolveHorizontalEdgeSnap(
+    targetAbsoluteEdgeTick: number,
+    excludedIds: Set<string>,
+  ): { tick: number; guideTick: number } | null {
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return null;
+    }
+
+    let nearestTick: number | null = null;
+    let nearestDistancePx = Number.POSITIVE_INFINITY;
+
+    for (const candidateTick of this.collectHorizontalSnapTicks(excludedIds)) {
+      const distancePx = Math.abs(candidateTick - targetAbsoluteEdgeTick) * tickSizePx;
+      if (distancePx > this.HORIZONTAL_SNAP_THRESHOLD_PX || distancePx >= nearestDistancePx) {
+        continue;
+      }
+
+      nearestDistancePx = distancePx;
+      nearestTick = candidateTick;
+    }
+
+    if (nearestTick === null) {
+      return null;
+    }
+
+    return { tick: nearestTick, guideTick: nearestTick };
+  }
+
+  private resolveHorizontalMoveSnap(
+    startTick: number,
+    durationTicks: number,
+    parentAbsoluteStartTick: number,
+    excludedIds: Set<string>,
+  ): { startTick: number; guideTick: number } | null {
+    const startAbsoluteTick = parentAbsoluteStartTick + startTick;
+    const endAbsoluteTick = startAbsoluteTick + durationTicks;
+
+    const startEdgeSnap = this.resolveHorizontalEdgeSnap(startAbsoluteTick, excludedIds);
+    const endEdgeSnap = this.resolveHorizontalEdgeSnap(endAbsoluteTick, excludedIds);
+    if (!startEdgeSnap && !endEdgeSnap) {
+      return null;
+    }
+
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return null;
+    }
+
+    let selectedStartTick = startTick;
+    let selectedGuideTick: number | null = null;
+    let bestDistancePx = Number.POSITIVE_INFINITY;
+
+    if (startEdgeSnap) {
+      const snappedStartTick = startEdgeSnap.tick - parentAbsoluteStartTick;
+      const distancePx = Math.abs(snappedStartTick - startTick) * tickSizePx;
+      if (distancePx < bestDistancePx) {
+        bestDistancePx = distancePx;
+        selectedStartTick = snappedStartTick;
+        selectedGuideTick = startEdgeSnap.guideTick;
+      }
+    }
+
+    if (endEdgeSnap) {
+      const snappedStartTick = endEdgeSnap.tick - parentAbsoluteStartTick - durationTicks;
+      const distancePx = Math.abs(snappedStartTick - startTick) * tickSizePx;
+      if (distancePx < bestDistancePx) {
+        selectedStartTick = snappedStartTick;
+        selectedGuideTick = endEdgeSnap.guideTick;
+      }
+    }
+
+    if (selectedGuideTick === null) {
+      return null;
+    }
+
+    return {
+      startTick: Math.max(0, selectedStartTick),
+      guideTick: selectedGuideTick,
+    };
+  }
+
+  private collectFolderVerticalSnapRows(excludedIds: Set<string>): number[] {
+    const rows = new Set<number>();
+    for (const item of this.timelineItems()) {
+      if (excludedIds.has(item.id) || item.type !== 'folder') {
+        continue;
+      }
+
+      rows.add(item.absoluteStartRow);
+      rows.add(item.absoluteStartRow + 1 + item.bodyTrackCount);
+    }
+
+    return [...rows];
+  }
+
+  private resolveFolderMoveVerticalSnap(
+    startRow: number,
+    rowSpan: number,
+    parentAbsoluteStartRow: number,
+    excludedIds: Set<string>,
+  ): { startRow: number; guideRow: number } | null {
+    const candidates = this.collectFolderVerticalSnapRows(excludedIds);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const topAbsoluteRow = parentAbsoluteStartRow + startRow;
+    const bottomAbsoluteRow = topAbsoluteRow + rowSpan;
+    let bestStartRow = startRow;
+    let bestGuideRow: number | null = null;
+    let bestDistancePx = Number.POSITIVE_INFINITY;
+
+    for (const candidateRow of candidates) {
+      const topDistancePx = Math.abs(candidateRow - topAbsoluteRow) * this.TRACK_HEIGHT;
+      if (topDistancePx <= this.VERTICAL_SNAP_THRESHOLD_PX && topDistancePx < bestDistancePx) {
+        bestDistancePx = topDistancePx;
+        bestStartRow = candidateRow - parentAbsoluteStartRow;
+        bestGuideRow = candidateRow;
+      }
+
+      const bottomDistancePx = Math.abs(candidateRow - bottomAbsoluteRow) * this.TRACK_HEIGHT;
+      if (
+        bottomDistancePx <= this.VERTICAL_SNAP_THRESHOLD_PX &&
+        bottomDistancePx < bestDistancePx
+      ) {
+        bestDistancePx = bottomDistancePx;
+        bestStartRow = candidateRow - rowSpan - parentAbsoluteStartRow;
+        bestGuideRow = candidateRow;
+      }
+    }
+
+    if (bestGuideRow === null) {
+      return null;
+    }
+
+    return {
+      startRow: Math.max(0, bestStartRow),
+      guideRow: bestGuideRow,
+    };
+  }
+
+  private resolveFolderBottomSnap(
+    startRow: number,
+    bodyTrackCount: number,
+    parentAbsoluteStartRow: number,
+    excludedIds: Set<string>,
+  ): { bodyTrackCount: number; guideRow: number } | null {
+    const candidates = this.collectFolderVerticalSnapRows(excludedIds);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const bottomAbsoluteRow = parentAbsoluteStartRow + startRow + 1 + bodyTrackCount;
+    let bestBodyTrackCount = bodyTrackCount;
+    let bestGuideRow: number | null = null;
+    let bestDistancePx = Number.POSITIVE_INFINITY;
+
+    for (const candidateRow of candidates) {
+      const distancePx = Math.abs(candidateRow - bottomAbsoluteRow) * this.TRACK_HEIGHT;
+      if (distancePx > this.VERTICAL_SNAP_THRESHOLD_PX || distancePx >= bestDistancePx) {
+        continue;
+      }
+
+      bestDistancePx = distancePx;
+      bestBodyTrackCount = Math.max(1, candidateRow - parentAbsoluteStartRow - startRow - 1);
+      bestGuideRow = candidateRow;
+    }
+
+    if (bestGuideRow === null) {
+      return null;
+    }
+
+    return {
+      bodyTrackCount: bestBodyTrackCount,
+      guideRow: bestGuideRow,
+    };
+  }
+
+  private resolveFolderTopSnap(
+    startRow: number,
+    parentAbsoluteStartRow: number,
+    excludedIds: Set<string>,
+  ): { startAbsoluteRow: number; guideRow: number } | null {
+    const candidates = this.collectFolderVerticalSnapRows(excludedIds);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const startAbsoluteRow = parentAbsoluteStartRow + startRow;
+    let bestRow: number | null = null;
+    let bestDistancePx = Number.POSITIVE_INFINITY;
+
+    for (const candidateRow of candidates) {
+      const distancePx = Math.abs(candidateRow - startAbsoluteRow) * this.TRACK_HEIGHT;
+      if (distancePx > this.VERTICAL_SNAP_THRESHOLD_PX || distancePx >= bestDistancePx) {
+        continue;
+      }
+
+      bestDistancePx = distancePx;
+      bestRow = candidateRow;
+    }
+
+    if (bestRow === null) {
+      return null;
+    }
+
+    return {
+      startAbsoluteRow: bestRow,
+      guideRow: bestRow,
+    };
   }
 }
