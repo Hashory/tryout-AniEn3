@@ -26,12 +26,26 @@ interface TimelineBounds {
   endRow: number;
 }
 
+interface TimelineRect {
+  leftTick: number;
+  rightTick: number;
+  topRow: number;
+  bottomRow: number;
+}
+
+interface DropProbePoint {
+  absoluteTick: number;
+  absoluteRow: number;
+}
+
 interface ItemDragState {
   type: 'move' | 'resize-left' | 'resize-right' | 'resize-top' | 'resize-bottom';
   itemId: string;
   itemType: 'strip' | 'folder';
   startX: number;
   startY: number;
+  lastClientX: number;
+  lastClientY: number;
   initialStartTick: number;
   initialStartRow: number;
   initialDurationTicks: number;
@@ -127,6 +141,7 @@ interface ItemDragState {
                 ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
               "
               [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
+              [style.clip-path]="itemClipPath(item)"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -162,6 +177,7 @@ interface ItemDragState {
                 ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
               "
               [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
+              [style.clip-path]="itemClipPath(item)"
               [class.selected]="item.isSelected"
               (mousedown)="onItemMouseDown($event, item)"
               (keydown.enter)="onItemKeydown($event, item.id)"
@@ -738,6 +754,84 @@ export class AnienTimelineComponent implements OnDestroy {
   public readonly timelineHeightStyle = computed(
     () => 'calc(var(--timeline-track-height) * ' + this.timelineRows() + ')',
   );
+  private readonly itemClipPathMap = computed(() => {
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return new Map<string, string | null>();
+    }
+
+    const rootFolderSourceId = this.rootFolderSourceId();
+    const folderBySourceId = new Map<string, FolderVM>();
+    for (const item of this.timelineItems()) {
+      if (item.type === 'folder') {
+        folderBySourceId.set(item.sourceId, item);
+      }
+    }
+
+    const clipMap = new Map<string, string | null>();
+    for (const item of this.timelineItems()) {
+      const itemRect: TimelineRect = {
+        leftTick: item.absoluteStartTick,
+        rightTick: item.absoluteStartTick + item.durationTicks,
+        topRow: item.absoluteStartRow,
+        bottomRow: item.absoluteStartRow + item.rowSpan,
+      };
+
+      let clippedRect: TimelineRect = { ...itemRect };
+      let parentFolderSourceId = item.parentFolderId;
+      let hasAncestorClip = false;
+
+      while (parentFolderSourceId && parentFolderSourceId !== rootFolderSourceId) {
+        const ancestorFolder = folderBySourceId.get(parentFolderSourceId);
+        if (!ancestorFolder) {
+          break;
+        }
+
+        const ancestorContentRect: TimelineRect = {
+          leftTick: ancestorFolder.absoluteStartTick,
+          rightTick: ancestorFolder.absoluteStartTick + ancestorFolder.durationTicks,
+          topRow: ancestorFolder.absoluteStartRow + 1,
+          bottomRow: ancestorFolder.absoluteStartRow + 1 + ancestorFolder.bodyTrackCount,
+        };
+
+        clippedRect = this.intersectRects(clippedRect, ancestorContentRect);
+        hasAncestorClip = true;
+        parentFolderSourceId = ancestorFolder.parentFolderId;
+      }
+
+      if (!hasAncestorClip) {
+        clipMap.set(item.id, null);
+        continue;
+      }
+
+      const visibleWidthTicks = clippedRect.rightTick - clippedRect.leftTick;
+      const visibleHeightRows = clippedRect.bottomRow - clippedRect.topRow;
+      if (visibleWidthTicks <= 0 || visibleHeightRows <= 0) {
+        clipMap.set(item.id, 'inset(100% 0 0 0)');
+        continue;
+      }
+
+      const leftInsetPx = Math.max(0, (clippedRect.leftTick - itemRect.leftTick) * tickSizePx);
+      const rightInsetPx = Math.max(0, (itemRect.rightTick - clippedRect.rightTick) * tickSizePx);
+      const topInsetPx = Math.max(0, (clippedRect.topRow - itemRect.topRow) * this.TRACK_HEIGHT);
+      const bottomInsetPx = Math.max(
+        0,
+        (itemRect.bottomRow - clippedRect.bottomRow) * this.TRACK_HEIGHT,
+      );
+
+      if (leftInsetPx === 0 && rightInsetPx === 0 && topInsetPx === 0 && bottomInsetPx === 0) {
+        clipMap.set(item.id, null);
+        continue;
+      }
+
+      clipMap.set(
+        item.id,
+        `inset(${topInsetPx}px ${rightInsetPx}px ${bottomInsetPx}px ${leftInsetPx}px)`,
+      );
+    }
+
+    return clipMap;
+  });
 
   @ViewChild('mainWrapper') mainWrapperRef?: ElementRef<HTMLDivElement>;
   @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
@@ -864,6 +958,8 @@ export class AnienTimelineComponent implements OnDestroy {
       itemType: item.type,
       startX: event.clientX,
       startY: event.clientY,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
       initialStartTick: item.startTick,
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
@@ -896,6 +992,8 @@ export class AnienTimelineComponent implements OnDestroy {
       itemType: item.type,
       startX: event.clientX,
       startY: event.clientY,
+      lastClientX: event.clientX,
+      lastClientY: event.clientY,
       initialStartTick: item.startTick,
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
@@ -1004,6 +1102,8 @@ export class AnienTimelineComponent implements OnDestroy {
       itemType: item.type,
       startX: this.mouseDownState.startX,
       startY: this.mouseDownState.startY,
+      lastClientX: this.mouseDownState.startX,
+      lastClientY: this.mouseDownState.startY,
       initialStartTick: item.startTick,
       initialStartRow: item.startRow,
       initialDurationTicks: item.durationTicks,
@@ -1099,6 +1199,9 @@ export class AnienTimelineComponent implements OnDestroy {
     if (!this.dragState) {
       return;
     }
+
+    this.dragState.lastClientX = event.clientX;
+    this.dragState.lastClientY = event.clientY;
 
     const deltaPixels = event.clientX - this.dragState.startX;
     const tickSizePx = this.tickSizePx();
@@ -1440,7 +1543,10 @@ export class AnienTimelineComponent implements OnDestroy {
       this.dragState = null;
 
       if (completedDrag.type === 'move') {
-        this.finalizeMove(completedDrag.itemId);
+        this.finalizeMove(completedDrag.itemId, {
+          clientX: completedDrag.lastClientX,
+          clientY: completedDrag.lastClientY,
+        });
       }
 
       this.snapGuideState.set(null);
@@ -1699,14 +1805,45 @@ export class AnienTimelineComponent implements OnDestroy {
     this.requestRender();
   }
 
-  private finalizeMove(itemId: string): void {
+  public itemClipPath(item: StripVM | FolderVM): string | null {
+    return this.itemClipPathMap().get(item.id) ?? null;
+  }
+
+  private intersectRects(left: TimelineRect, right: TimelineRect): TimelineRect {
+    return {
+      leftTick: Math.max(left.leftTick, right.leftTick),
+      rightTick: Math.min(left.rightTick, right.rightTick),
+      topRow: Math.max(left.topRow, right.topRow),
+      bottomRow: Math.min(left.bottomRow, right.bottomRow),
+    };
+  }
+
+  private resolveDropProbePoint(clientX: number, clientY: number): DropProbePoint | null {
+    const mainWrapper = this.mainWrapperRef?.nativeElement;
+    const tickSizePx = this.tickSizePx();
+    if (!mainWrapper || tickSizePx <= 0) {
+      return null;
+    }
+
+    const mainRect = mainWrapper.getBoundingClientRect();
+    const viewportX = Math.min(Math.max(0, clientX - mainRect.left), mainRect.width);
+    const viewportY = Math.min(Math.max(0, clientY - mainRect.top), mainRect.height);
+
+    return {
+      absoluteTick: (mainWrapper.scrollLeft + viewportX) / tickSizePx,
+      absoluteRow: (mainWrapper.scrollTop + viewportY) / this.TRACK_HEIGHT,
+    };
+  }
+
+  private finalizeMove(itemId: string, pointer?: { clientX: number; clientY: number }): void {
     const draggedItem = this.timelineItems().find((item) => item.id === itemId);
     if (!draggedItem) {
       this.requestRender();
       return;
     }
 
-    const target = this.resolveDropTarget(draggedItem);
+    const dropProbe = pointer ? this.resolveDropProbePoint(pointer.clientX, pointer.clientY) : null;
+    const target = this.resolveDropTarget(draggedItem, dropProbe);
     if (!target || target.parentFolderId === draggedItem.parentFolderId) {
       this.requestRender();
       return;
@@ -1718,6 +1855,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
   private resolveDropTarget(
     draggedItem: StripVM | FolderVM,
+    dropProbe: DropProbePoint | null,
   ):
     | (Required<
         Pick<import('../../services/timeline-store.service').MoveTargetInput, 'parentFolderId'>
@@ -1735,9 +1873,7 @@ export class AnienTimelineComponent implements OnDestroy {
     const candidateFolders = this.timelineItems()
       .filter((item): item is FolderVM => item.type === 'folder')
       .filter((item) => this.isValidDropTargetFolder(draggedItem, item))
-      .filter((item) =>
-        this.isInsideFolderBody(draggedItem.absoluteStartTick, draggedItem.absoluteStartRow, item),
-      )
+      .filter((item) => this.isInsideFolderBody(draggedItem, item, dropProbe))
       .sort(
         (left, right) =>
           right.absoluteStartRow - left.absoluteStartRow || left.rowSpan - right.rowSpan,
@@ -1760,19 +1896,28 @@ export class AnienTimelineComponent implements OnDestroy {
   }
 
   private isInsideFolderBody(
-    absoluteStartTick: number,
-    absoluteStartRow: number,
+    draggedItem: StripVM | FolderVM,
     folder: FolderVM,
+    dropProbe: DropProbePoint | null,
   ): boolean {
     const bodyStartRow = folder.absoluteStartRow + 1;
     const bodyEndRow = bodyStartRow + folder.bodyTrackCount;
     const folderEndTick = folder.absoluteStartTick + folder.durationTicks;
 
+    if (dropProbe) {
+      return (
+        dropProbe.absoluteTick >= folder.absoluteStartTick &&
+        dropProbe.absoluteTick < folderEndTick &&
+        dropProbe.absoluteRow >= bodyStartRow &&
+        dropProbe.absoluteRow < bodyEndRow
+      );
+    }
+
     return (
-      absoluteStartTick >= folder.absoluteStartTick &&
-      absoluteStartTick < folderEndTick &&
-      absoluteStartRow >= bodyStartRow &&
-      absoluteStartRow < bodyEndRow
+      draggedItem.absoluteStartTick >= folder.absoluteStartTick &&
+      draggedItem.absoluteStartTick < folderEndTick &&
+      draggedItem.absoluteStartRow >= bodyStartRow &&
+      draggedItem.absoluteStartRow < bodyEndRow
     );
   }
 

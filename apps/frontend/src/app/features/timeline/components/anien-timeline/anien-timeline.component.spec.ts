@@ -290,4 +290,244 @@ describe('AnienTimelineComponent', () => {
     expect(stateService.zoomLevel()).toBeGreaterThan(1);
     expect(Math.abs(afterAnchorTick - beforeAnchorTick)).toBeLessThan(0.001);
   });
+
+  it('reparents a strip when dropped inside folder body', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const folderPlacementId = stateService.addFolder(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 2,
+      },
+      {
+        name: 'Drop Target Folder',
+        startTick: 100,
+        durationTicks: 180,
+        bodyTrackCount: 2,
+      },
+    );
+    const stripPlacementId = stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 7,
+      },
+      {
+        sourceName: 'Reparent Probe Strip',
+        kind: 'generated',
+        startTick: 20,
+        durationTicks: 40,
+      },
+    );
+    expect(folderPlacementId).toBeTruthy();
+    expect(stripPlacementId).toBeTruthy();
+
+    fixture.detectChanges();
+
+    const folderItem = component
+      .timelineItems()
+      .find((item) => item.id === folderPlacementId && item.type === 'folder');
+    const stripItem = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(folderItem).toBeTruthy();
+    expect(stripItem).toBeTruthy();
+    if (!folderItem || !stripItem || folderItem.type !== 'folder' || stripItem.type !== 'strip') {
+      return;
+    }
+
+    const mainWrapper = component.mainWrapperRef?.nativeElement;
+    expect(mainWrapper).toBeTruthy();
+    if (!mainWrapper) {
+      return;
+    }
+
+    mainWrapper.scrollLeft = 0;
+    mainWrapper.scrollTop = 0;
+    Object.defineProperty(mainWrapper, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 1200,
+          bottom: 800,
+          width: 1200,
+          height: 800,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    const targetStartTick = folderItem.absoluteStartTick + 10;
+    const targetStartRow = folderItem.absoluteStartRow + 1;
+    const deltaTicks = targetStartTick - stripItem.absoluteStartTick;
+    const deltaRows = targetStartRow - stripItem.absoluteStartRow;
+    const startX = 300;
+    const startY = 300;
+    const moveX = startX + deltaTicks * stateService.tickSizePx();
+    const moveY = startY + deltaRows * 34;
+
+    component.onItemMouseDown(
+      new MouseEvent('mousedown', { clientX: startX, clientY: startY }),
+      stripItem,
+    );
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: moveX, clientY: moveY }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: moveX, clientY: moveY }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: moveX, clientY: moveY }));
+    fixture.detectChanges();
+
+    const movedStrip = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(movedStrip?.parentFolderId).toBe(folderItem.sourceId);
+  });
+
+  it('does not reparent a strip when dropped on folder header area', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const folderPlacementId = stateService.addFolder(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 2,
+      },
+      {
+        name: 'Header Guard Folder',
+        startTick: 160,
+        durationTicks: 180,
+        bodyTrackCount: 2,
+      },
+    );
+    const stripPlacementId = stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 8,
+      },
+      {
+        sourceName: 'Header Drop Probe',
+        kind: 'generated',
+        startTick: 10,
+        durationTicks: 40,
+      },
+    );
+    expect(folderPlacementId).toBeTruthy();
+    expect(stripPlacementId).toBeTruthy();
+
+    fixture.detectChanges();
+
+    const folderItem = component
+      .timelineItems()
+      .find((item) => item.id === folderPlacementId && item.type === 'folder');
+    const stripItem = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(folderItem).toBeTruthy();
+    expect(stripItem).toBeTruthy();
+    if (!folderItem || !stripItem || folderItem.type !== 'folder' || stripItem.type !== 'strip') {
+      return;
+    }
+
+    const mainWrapper = component.mainWrapperRef?.nativeElement;
+    expect(mainWrapper).toBeTruthy();
+    if (!mainWrapper) {
+      return;
+    }
+
+    mainWrapper.scrollLeft = 0;
+    mainWrapper.scrollTop = 0;
+    Object.defineProperty(mainWrapper, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 1200,
+          bottom: 800,
+          width: 1200,
+          height: 800,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    const targetStartTick = folderItem.absoluteStartTick + 20;
+    const targetStartRow = folderItem.absoluteStartRow;
+    const deltaTicks = targetStartTick - stripItem.absoluteStartTick;
+    const deltaRows = targetStartRow - stripItem.absoluteStartRow;
+    const startX = 320;
+    const startY = 300;
+    const moveX = startX + deltaTicks * stateService.tickSizePx();
+    const moveY = startY + deltaRows * 34;
+
+    component.onItemMouseDown(
+      new MouseEvent('mousedown', { clientX: startX, clientY: startY }),
+      stripItem,
+    );
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: moveX, clientY: moveY }));
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: moveX, clientY: moveY }));
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: moveX, clientY: moveY }));
+    fixture.detectChanges();
+
+    const movedStrip = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(movedStrip?.parentFolderId).toBe(rootFolderSourceId);
+  });
+
+  it('applies clip-path to child strip that overflows parent folder bounds', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const folderPlacementId = stateService.addFolder(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 3,
+      },
+      {
+        name: 'Clip Parent Folder',
+        startTick: 100,
+        durationTicks: 100,
+        bodyTrackCount: 1,
+      },
+    );
+    expect(folderPlacementId).toBeTruthy();
+    fixture.detectChanges();
+
+    const folderItem = component
+      .timelineItems()
+      .find((item) => item.id === folderPlacementId && item.type === 'folder');
+    expect(folderItem).toBeTruthy();
+    if (!folderItem || folderItem.type !== 'folder') {
+      return;
+    }
+
+    const childStripId = stateService.addStrip(
+      {
+        parentFolderId: folderItem.sourceId,
+        trackIndex: 0,
+      },
+      {
+        sourceName: 'Overflow Child Strip',
+        kind: 'generated',
+        startTick: 80,
+        durationTicks: 60,
+      },
+    );
+    expect(childStripId).toBeTruthy();
+    fixture.detectChanges();
+
+    const stripElements = Array.from(
+      fixture.nativeElement.querySelectorAll('.timeline-main .strip') as NodeListOf<HTMLElement>,
+    );
+    const childStripElement = stripElements.find((element) =>
+      element.textContent?.includes('Overflow Child Strip'),
+    );
+
+    expect(childStripElement).toBeTruthy();
+    expect(childStripElement?.style.clipPath).toContain('inset(');
+  });
 });
