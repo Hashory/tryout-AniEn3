@@ -68,6 +68,13 @@ export class TimelineStateService {
   private readonly yjsService = inject(YjsTimelineService);
   private readonly destroyRef = inject(DestroyRef);
 
+  // Zoom tuning values are intentionally centralized for quick future adjustments.
+  public readonly BASE_TICK_SIZE_PX = 2;
+  public readonly MIN_ZOOM_LEVEL = 0.1;
+  public readonly MAX_ZOOM_LEVEL = 10;
+  public readonly WHEEL_ZOOM_SENSITIVITY = 0.001;
+  public readonly DRAG_ZOOM_SENSITIVITY = 0.002;
+
   private readonly model = signal<TimelineSnapshot | null>(null);
 
   private readonly _currentTick = signal<number>(0);
@@ -77,6 +84,7 @@ export class TimelineStateService {
   public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
+  public readonly tickSizePx = computed(() => this.BASE_TICK_SIZE_PX * this.zoomLevel());
   public readonly rootFolderSourceId = computed(
     () => this.model()?.root.rootFolderSourceId ?? null,
   );
@@ -238,6 +246,20 @@ export class TimelineStateService {
 
   public setCurrentTick(tick: number): void {
     this._currentTick.set(tick);
+  }
+
+  public setZoomLevel(level: number): number {
+    const nextLevel = this.clampZoomLevel(level);
+    this._zoomLevel.set(nextLevel);
+    return nextLevel;
+  }
+
+  public adjustZoomByRatio(ratio: number): number {
+    if (!Number.isFinite(ratio) || ratio <= 0) {
+      return this._zoomLevel();
+    }
+
+    return this.setZoomLevel(this._zoomLevel() * ratio);
   }
 
   public resetToDemoTimeline(): void {
@@ -557,5 +579,13 @@ export class TimelineStateService {
 
   private createDefaultFolderName(): string {
     return 'New Folder';
+  }
+
+  private clampZoomLevel(level: number): number {
+    if (!Number.isFinite(level)) {
+      return this._zoomLevel();
+    }
+
+    return Math.min(this.MAX_ZOOM_LEVEL, Math.max(this.MIN_ZOOM_LEVEL, level));
   }
 }

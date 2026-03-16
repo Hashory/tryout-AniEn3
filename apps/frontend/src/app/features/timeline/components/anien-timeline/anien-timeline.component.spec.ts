@@ -183,4 +183,111 @@ describe('AnienTimelineComponent', () => {
       );
     }
   });
+
+  it('updates the timeline tick-size CSS variable when zoom level changes', () => {
+    stateService.setZoomLevel(2);
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.style.getPropertyValue('--timeline-tick-size')).toBe('4px');
+  });
+
+  it('zooms around cursor anchor with Ctrl+mouse wheel', () => {
+    fixture.detectChanges();
+
+    const mainWrapper = component.mainWrapperRef?.nativeElement;
+    expect(mainWrapper).toBeTruthy();
+    if (!mainWrapper) {
+      return;
+    }
+
+    mainWrapper.scrollLeft = 120;
+    Object.defineProperty(mainWrapper, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          left: 50,
+          top: 0,
+          right: 650,
+          bottom: 300,
+          width: 600,
+          height: 300,
+          x: 50,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    const anchorClientX = 250;
+    const beforeTickSize = stateService.tickSizePx();
+    const beforeAnchorTick = (mainWrapper.scrollLeft + (anchorClientX - 50)) / beforeTickSize;
+
+    component.onHostWheel(
+      new WheelEvent('wheel', {
+        ctrlKey: true,
+        deltaY: -100,
+        clientX: anchorClientX,
+      }),
+    );
+    fixture.detectChanges();
+
+    const afterTickSize = stateService.tickSizePx();
+    const afterAnchorTick = (mainWrapper.scrollLeft + (anchorClientX - 50)) / afterTickSize;
+    expect(stateService.zoomLevel()).toBeGreaterThan(1);
+    expect(Math.abs(afterAnchorTick - beforeAnchorTick)).toBeLessThan(0.001);
+  });
+
+  it('zooms with Ctrl+Space+left drag using drag start point as anchor', () => {
+    fixture.detectChanges();
+
+    const mainWrapper = component.mainWrapperRef?.nativeElement;
+    expect(mainWrapper).toBeTruthy();
+    if (!mainWrapper) {
+      return;
+    }
+
+    mainWrapper.scrollLeft = 90;
+    Object.defineProperty(mainWrapper, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          left: 40,
+          top: 0,
+          right: 640,
+          bottom: 300,
+          width: 600,
+          height: 300,
+          x: 40,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+
+    const anchorClientX = 220;
+    const anchorViewportX = anchorClientX - 40;
+    const beforeTickSize = stateService.tickSizePx();
+    const beforeAnchorTick = (mainWrapper.scrollLeft + anchorViewportX) / beforeTickSize;
+
+    component.onWindowKeydown(new KeyboardEvent('keydown', { code: 'Space', ctrlKey: true }));
+    component.onTimelineMouseDown(
+      new MouseEvent('mousedown', {
+        button: 0,
+        clientX: anchorClientX,
+        clientY: 300,
+        ctrlKey: true,
+      }),
+    );
+
+    window.dispatchEvent(
+      new MouseEvent('mousemove', {
+        clientX: anchorClientX,
+        clientY: 230,
+      }),
+    );
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: anchorClientX, clientY: 230 }));
+    fixture.detectChanges();
+
+    const afterTickSize = stateService.tickSizePx();
+    const afterAnchorTick = (mainWrapper.scrollLeft + anchorViewportX) / afterTickSize;
+    expect(stateService.zoomLevel()).toBeGreaterThan(1);
+    expect(Math.abs(afterAnchorTick - beforeAnchorTick)).toBeLessThan(0.001);
+  });
 });

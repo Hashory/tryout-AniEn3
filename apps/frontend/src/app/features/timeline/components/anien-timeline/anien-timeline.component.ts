@@ -4,6 +4,7 @@ import {
   Component,
   ElementRef,
   NgZone,
+  OnDestroy,
   ViewChild,
   computed,
   inject,
@@ -15,6 +16,13 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
 
 @Component({
   selector: 'app-anien-timeline',
+  host: {
+    '[style.--timeline-tick-size]': 'tickSizeCss()',
+    '(wheel)': 'onHostWheel($event)',
+    '(window:keydown)': 'onWindowKeydown($event)',
+    '(window:keyup)': 'onWindowKeyup($event)',
+    '(window:blur)': 'onWindowBlur()',
+  },
   template: `
     <div class="timeline-header">
       <button class="add-track-btn" (click)="addTrack()">+</button>
@@ -39,6 +47,7 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
     <div
       class="timeline-sidebar"
       tabindex="0"
+      (mousedown)="onTimelineMouseDown($event)"
       (click)="onBackgroundClick($event)"
       (keydown.enter)="onBackgroundKeydown($event)"
       (keydown.space)="onBackgroundKeydown($event)"
@@ -50,6 +59,7 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
         [style.width]="timelineWidthStyle()"
         [style.height]="timelineHeightStyle()"
         tabindex="0"
+        (mousedown)="onTimelineMouseDown($event)"
         (click)="onBackgroundClick($event)"
         (keydown.enter)="onBackgroundKeydown($event)"
         (keydown.space)="onBackgroundKeydown($event)"
@@ -634,7 +644,7 @@ import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline
   imports: [NgIcon],
   viewProviders: [provideIcons({ heroFolderMicro, heroChevronUpDownMicro })],
 })
-export class AnienTimelineComponent {
+export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly ngZone = inject(NgZone);
@@ -647,6 +657,9 @@ export class AnienTimelineComponent {
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
   public readonly currentTick = this.stateService.currentTick;
+  public readonly zoomLevel = this.stateService.zoomLevel;
+  public readonly tickSizePx = this.stateService.tickSizePx;
+  public readonly tickSizeCss = computed(() => this.tickSizePx() + 'px');
   public readonly debugStats = this.stateService.debugStats;
   public readonly debugSnapshotJson = this.stateService.debugSnapshotJson;
   public readonly rulerTicks = computed(() => {
@@ -663,7 +676,6 @@ export class AnienTimelineComponent {
   @ViewChild('mainWrapper') mainWrapperRef?: ElementRef<HTMLDivElement>;
   @ViewChild('rulerWrapper') rulerWrapperRef?: ElementRef<HTMLDivElement>;
 
-  private readonly TICK_SIZE = 2;
   private readonly TRACK_HEIGHT = 34;
 
   public readonly debugPanelVisible = signal(false);
@@ -691,9 +703,29 @@ export class AnienTimelineComponent {
   } | null = null;
 
   private rulerDragState: { isDragging: boolean; startX: number } | null = null;
+  private zoomDragState: {
+    startY: number;
+    initialZoom: number;
+    anchorTick: number;
+    viewportX: number;
+  } | null = null;
+  private isSpacePressed = false;
   private renderFrameId: number | null = null;
   private detachRenderId: number | null = null;
   private snapshotCopyResetTimeoutId: number | null = null;
+
+  public ngOnDestroy(): void {
+    window.removeEventListener('mousemove', this.onWindowMouseMove);
+    window.removeEventListener('mouseup', this.onWindowMouseUp);
+    window.removeEventListener('mousemove', this.onRulerMouseMove);
+    window.removeEventListener('mouseup', this.onRulerMouseUp);
+    this.stopZoneLessDragLoop();
+
+    if (this.snapshotCopyResetTimeoutId !== null) {
+      window.clearTimeout(this.snapshotCopyResetTimeoutId);
+      this.snapshotCopyResetTimeoutId = null;
+    }
+  }
 
   public addTrack(): void {
     this.stateService.addTrack();
@@ -740,6 +772,10 @@ export class AnienTimelineComponent {
   }
 
   public onItemMouseDown(event: MouseEvent, item: StripVM | FolderVM): void {
+    if (this.tryStartZoomDrag(event)) {
+      return;
+    }
+
     this.mouseDownState = {
       startX: event.clientX,
       startY: event.clientY,
@@ -808,7 +844,63 @@ export class AnienTimelineComponent {
     window.addEventListener('mouseup', this.onWindowMouseUp);
   }
 
+  public onTimelineMouseDown(event: MouseEvent): void {
+    this.tryStartZoomDrag(event);
+  }
+
+  public onHostWheel(event: WheelEvent): void {
+    if (!event.ctrlKey) {
+      return;
+    }
+
+    const anchor = this.resolveZoomAnchor(event.clientX);
+    if (!anchor) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const ratio = Math.exp(-event.deltaY * this.stateService.WHEEL_ZOOM_SENSITIVITY);
+    if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 0.0001) {
+      return;
+    }
+
+    this.applyAnchoredZoom(this.zoomLevel() * ratio, anchor.anchorTick, anchor.viewportX);
+  }
+
+  public onWindowKeydown(event: KeyboardEvent): void {
+    if (event.code !== 'Space') {
+      return;
+    }
+
+    this.isSpacePressed = true;
+    if (event.ctrlKey) {
+      event.preventDefault();
+    }
+  }
+
+  public onWindowKeyup(event: KeyboardEvent): void {
+    if (event.code !== 'Space') {
+      return;
+    }
+
+    this.isSpacePressed = false;
+  }
+
+  public onWindowBlur(): void {
+    this.isSpacePressed = false;
+    this.onWindowMouseUp();
+    this.rulerDragState = null;
+    window.removeEventListener('mousemove', this.onRulerMouseMove);
+    window.removeEventListener('mouseup', this.onRulerMouseUp);
+  }
+
   private onWindowMouseMove = (event: MouseEvent) => {
+    if (this.zoomDragState) {
+      this.handleZoomDrag(event);
+      return;
+    }
+
     if (this.dragState) {
       this.handleDrag(event);
       return;
@@ -858,7 +950,12 @@ export class AnienTimelineComponent {
     }
 
     const deltaPixels = event.clientX - this.dragState.startX;
-    const currentDeltaTicks = Math.round(deltaPixels / this.TICK_SIZE);
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return;
+    }
+
+    const currentDeltaTicks = Math.round(deltaPixels / tickSizePx);
     const diffTicks = currentDeltaTicks - this.dragState.appliedDeltaTicks;
     const deltaRowsPixels = event.clientY - this.dragState.startY;
     const currentDeltaRows = Math.round(deltaRowsPixels / this.TRACK_HEIGHT);
@@ -984,6 +1081,11 @@ export class AnienTimelineComponent {
     window.removeEventListener('mouseup', this.onWindowMouseUp);
     this.stopZoneLessDragLoop();
 
+    if (this.zoomDragState) {
+      this.zoomDragState = null;
+      return;
+    }
+
     if (this.dragState) {
       const completedDrag = this.dragState;
       this.dragState = null;
@@ -1080,6 +1182,10 @@ export class AnienTimelineComponent {
   }
 
   public onRulerMouseDown(event: MouseEvent): void {
+    if (this.tryStartZoomDrag(event)) {
+      return;
+    }
+
     this.rulerDragState = { isDragging: true, startX: event.clientX };
     this.updateTickFromMouse(event);
     window.addEventListener('mousemove', this.onRulerMouseMove);
@@ -1103,12 +1209,107 @@ export class AnienTimelineComponent {
       return;
     }
 
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return;
+    }
+
     const rulerRect = this.rulerWrapperRef.nativeElement.getBoundingClientRect();
     const scrollLeft = this.rulerWrapperRef.nativeElement.scrollLeft;
     const offsetX = event.clientX - rulerRect.left + scrollLeft;
-    let tick = Math.round(offsetX / this.TICK_SIZE);
+    let tick = Math.round(offsetX / tickSizePx);
     tick = Math.max(0, Math.min(tick, this.timelineExtentTicks()));
     this.stateService.setCurrentTick(tick);
+  }
+
+  private tryStartZoomDrag(event: MouseEvent): boolean {
+    if (event.button !== 0 || !event.ctrlKey || !this.isSpacePressed) {
+      return false;
+    }
+
+    const anchor = this.resolveZoomAnchor(event.clientX);
+    if (!anchor) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.mouseDownState = null;
+    this.dragState = null;
+    this.rulerDragState = null;
+    window.removeEventListener('mousemove', this.onRulerMouseMove);
+    window.removeEventListener('mouseup', this.onRulerMouseUp);
+    this.zoomDragState = {
+      startY: event.clientY,
+      initialZoom: this.zoomLevel(),
+      anchorTick: anchor.anchorTick,
+      viewportX: anchor.viewportX,
+    };
+
+    this.startZoneLessDragLoop();
+    window.addEventListener('mousemove', this.onWindowMouseMove);
+    window.addEventListener('mouseup', this.onWindowMouseUp);
+    return true;
+  }
+
+  private handleZoomDrag(event: MouseEvent): void {
+    if (!this.zoomDragState) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const deltaY = this.zoomDragState.startY - event.clientY;
+    const ratio = Math.exp(deltaY * this.stateService.DRAG_ZOOM_SENSITIVITY);
+    if (!Number.isFinite(ratio)) {
+      return;
+    }
+
+    this.applyAnchoredZoom(
+      this.zoomDragState.initialZoom * ratio,
+      this.zoomDragState.anchorTick,
+      this.zoomDragState.viewportX,
+    );
+  }
+
+  private applyAnchoredZoom(targetZoom: number, anchorTick: number, viewportX: number): void {
+    const mainWrapper = this.mainWrapperRef?.nativeElement;
+    if (!mainWrapper) {
+      return;
+    }
+
+    const previousZoom = this.zoomLevel();
+    const nextZoom = this.stateService.setZoomLevel(targetZoom);
+    if (Math.abs(nextZoom - previousZoom) < 0.000001) {
+      return;
+    }
+
+    const nextTickSizePx = this.tickSizePx();
+    const nextScrollLeft = Math.max(0, anchorTick * nextTickSizePx - viewportX);
+    mainWrapper.scrollLeft = nextScrollLeft;
+    if (this.rulerWrapperRef) {
+      this.rulerWrapperRef.nativeElement.scrollLeft = nextScrollLeft;
+    }
+
+    this.requestRender();
+  }
+
+  private resolveZoomAnchor(clientX: number): { anchorTick: number; viewportX: number } | null {
+    const mainWrapper = this.mainWrapperRef?.nativeElement;
+    if (!mainWrapper) {
+      return null;
+    }
+
+    const tickSizePx = this.tickSizePx();
+    if (tickSizePx <= 0) {
+      return null;
+    }
+
+    const mainRect = mainWrapper.getBoundingClientRect();
+    const viewportX = Math.min(Math.max(0, clientX - mainRect.left), mainRect.width);
+    const anchorTick = (mainWrapper.scrollLeft + viewportX) / tickSizePx;
+    return { anchorTick, viewportX };
   }
 
   private requestRender(): void {
