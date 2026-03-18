@@ -10,9 +10,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { NgIcon, provideIcons } from '@ng-icons/core';
-import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
 import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
+import { AnienTimelineFolderComponent } from '../anien-timeline-folder/anien-timeline-folder.component';
+import { AnienTimelineStripComponent } from '../anien-timeline-strip/anien-timeline-strip.component';
 
 interface SnapGuideState {
   tick: number | null;
@@ -130,90 +130,23 @@ interface ItemDragState {
 
         @for (item of timelineItems(); track item.id) {
           @if (item.type === 'strip') {
-            <div
-              class="strip"
-              tabindex="0"
-              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
-              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ' - 8px)'"
-              [style.top]="
-                'calc(' +
-                item.absoluteStartRow +
-                ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
-              "
-              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
-              [style.clip-path]="itemClipPath(item)"
-              [class.selected]="item.isSelected"
-              (mousedown)="onItemMouseDown($event, item)"
-              (keydown.enter)="onItemKeydown($event, item.id)"
-              (keydown.space)="onItemKeydown($event, item.id)"
-            >
-              <div
-                class="resize-handle top"
-                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
-              ></div>
-              <div
-                class="resize-handle left"
-                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
-              ></div>
-              {{ item.sourceName }}
-              <div
-                class="resize-handle right"
-                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
-              ></div>
-              <div
-                class="resize-handle bottom"
-                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
-              ></div>
-            </div>
+            <app-anien-timeline-strip
+              [item]="item"
+              [clipPath]="itemClipPath(item)"
+              (itemMouseDown)="onItemMouseDown($event, item)"
+              (itemKeydown)="onItemKeydown($event, item.id)"
+              (horizontalResizeStart)="onResizeHandleMouseDown($event.event, item, $event.side)"
+              (verticalResizeStart)="onVerticalResizeMouseDown($event.event, item, $event.side)"
+            />
           } @else {
-            <div
-              class="folder"
-              tabindex="0"
-              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
-              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ')'"
-              [style.top]="
-                'calc(' +
-                item.absoluteStartRow +
-                ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
-              "
-              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
-              [style.clip-path]="itemClipPath(item)"
-              [class.selected]="item.isSelected"
-              (mousedown)="onItemMouseDown($event, item)"
-              (keydown.enter)="onItemKeydown($event, item.id)"
-              (keydown.space)="onItemKeydown($event, item.id)"
-            >
-              <div
-                class="resize-handle top"
-                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
-              ></div>
-              <div
-                class="resize-handle left"
-                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
-              ></div>
-              <div class="folder-header" [class.expanded]="item.isExpanded">
-                <div type="button">
-                  <ng-icon name="heroFolderMicro" />
-                </div>
-                <div>{{ item.name }}</div>
-                <button>
-                  <ng-icon name="heroChevronUpDownMicro" [style.rotate]="'90deg'" />
-                </button>
-              </div>
-              <div
-                class="folder-content-holder"
-                [style.display]="item.isExpanded ? 'block' : 'none'"
-                [style.height]="'calc(' + item.bodyTrackCount + ' * var(--timeline-track-height))'"
-              ></div>
-              <div
-                class="resize-handle right"
-                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
-              ></div>
-              <div
-                class="resize-handle bottom"
-                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
-              ></div>
-            </div>
+            <app-anien-timeline-folder
+              [item]="item"
+              [clipPath]="itemClipPath(item)"
+              (itemMouseDown)="onItemMouseDown($event, item)"
+              (itemKeydown)="onItemKeydown($event, item.id)"
+              (horizontalResizeStart)="onResizeHandleMouseDown($event.event, item, $event.side)"
+              (verticalResizeStart)="onVerticalResizeMouseDown($event.event, item, $event.side)"
+            />
           }
         } @empty {
           <div class="empty-state">No timeline items yet.</div>
@@ -476,130 +409,12 @@ interface ItemDragState {
         );
       }
 
-      .timeline-main .strip {
-        z-index: 20000;
-        background-color: #024b71;
-        color: #cbe6ff;
-        align-content: center;
-        box-sizing: border-box;
-        padding: 0 var(--timeline-strip-padding-x);
-        border-radius: 5px;
-        position: absolute;
-        cursor: pointer;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .timeline-main .strip .resize-handle,
-      .timeline-main .folder .resize-handle {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        width: 10px;
-        cursor: col-resize;
-        z-index: 20001;
-      }
-
-      .timeline-main .strip .resize-handle.left,
-      .timeline-main .folder .resize-handle.left {
-        left: 0;
-      }
-
-      .timeline-main .strip .resize-handle.right,
-      .timeline-main .folder .resize-handle.right {
-        right: 0;
-      }
-
-      .timeline-main .strip .resize-handle.top,
-      .timeline-main .strip .resize-handle.bottom,
-      .timeline-main .folder .resize-handle.top,
-      .timeline-main .folder .resize-handle.bottom {
-        left: 0;
-        right: 0;
-        width: auto;
-        height: 10px;
-        cursor: row-resize;
-      }
-
-      .timeline-main .strip .resize-handle.top,
-      .timeline-main .folder .resize-handle.top {
-        top: 0;
-        bottom: auto;
-      }
-
-      .timeline-main .strip .resize-handle.bottom,
-      .timeline-main .folder .resize-handle.bottom {
-        top: auto;
-        bottom: 0;
-      }
-
-      .timeline-main .folder {
-        z-index: 10000;
-        position: absolute;
-        display: flex;
-        flex-direction: column;
-        cursor: pointer;
-      }
-
-      .timeline-main .folder .folder-header {
-        min-height: calc(var(--timeline-track-height) - 8px);
-        background-color: #437836;
-        color: #e0e3e8;
-        align-content: center;
-        padding: 0 var(--timeline-strip-padding-x);
-        border-radius: 10px 10px var(--timeline-folder-offset) var(--timeline-folder-offset);
-        display: grid;
-        grid-template-columns: 20px minmax(0, 1fr) 40px;
-        gap: 3px;
-      }
-
-      .timeline-main .folder .folder-header div:nth-child(2) {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .timeline-main .folder .folder-header.expanded {
-        border-radius: 10px 10px 0 0;
-      }
-
-      .timeline-main .folder .folder-header button {
-        background: none;
-        border: none;
-        padding: 0;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: inherit;
-      }
-
-      .timeline-main .folder .folder-content-holder {
-        background-color: #2e6b2e;
-        background-image: repeating-linear-gradient(
-          to bottom,
-          #32562a,
-          #32562a var(--timeline-folder-content-stripe-height),
-          #264c14 var(--timeline-folder-content-stripe-height),
-          #264c14 var(--timeline-track-height)
-        );
-        color: white;
-        border-radius: 0 0 var(--timeline-folder-offset) var(--timeline-folder-offset);
-      }
-
       .timeline-main .empty-state {
         color: white;
         height: 100%;
         display: grid;
         justify-content: center;
         align-items: center;
-      }
-
-      .timeline-main .strip.selected,
-      .timeline-main .folder.selected .folder-header {
-        box-shadow: 0 0 0 2px #8dd7ff inset;
       }
 
       .timeline-actions {
@@ -723,8 +538,7 @@ interface ItemDragState {
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgIcon],
-  viewProviders: [provideIcons({ heroFolderMicro, heroChevronUpDownMicro })],
+  imports: [AnienTimelineStripComponent, AnienTimelineFolderComponent],
 })
 export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
@@ -930,6 +744,8 @@ export class AnienTimelineComponent implements OnDestroy {
     if (this.tryStartZoomDrag(event)) {
       return;
     }
+
+    event.preventDefault();
 
     this.mouseDownState = {
       startX: event.clientX,
