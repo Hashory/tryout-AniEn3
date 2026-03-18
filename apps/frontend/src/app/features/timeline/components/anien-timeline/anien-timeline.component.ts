@@ -1190,7 +1190,6 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     this.snapGuideState.set({ tick: guideTick, row: guideRow });
-    this.requestRender();
   }
 
   private handleDrag(event: MouseEvent): void {
@@ -1285,7 +1284,6 @@ export class AnienTimelineComponent implements OnDestroy {
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
       this.dragState.appliedDeltaRows = appliedDeltaRows;
       this.snapGuideState.set({ tick: nextSnapTick, row: nextSnapRow });
-      this.requestRender();
       return;
     }
 
@@ -1350,7 +1348,6 @@ export class AnienTimelineComponent implements OnDestroy {
 
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
-      this.requestRender();
       return;
     }
 
@@ -1406,7 +1403,6 @@ export class AnienTimelineComponent implements OnDestroy {
       }
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
-      this.requestRender();
       return;
     }
 
@@ -1458,7 +1454,6 @@ export class AnienTimelineComponent implements OnDestroy {
       }
       this.dragState.appliedDeltaRows = appliedDeltaRows;
       this.snapGuideState.set({ tick: null, row: nextSnapRow });
-      this.requestRender();
       return;
     }
 
@@ -1522,7 +1517,6 @@ export class AnienTimelineComponent implements OnDestroy {
     }
     this.dragState.appliedDeltaRows = appliedDeltaRows;
     this.snapGuideState.set({ tick: null, row: nextSnapRow });
-    this.requestRender();
   }
 
   private onWindowMouseUp = () => {

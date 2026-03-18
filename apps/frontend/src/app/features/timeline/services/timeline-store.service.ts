@@ -109,6 +109,7 @@ export class YjsTimelineService {
   private readonly yPlacements: YPlacementsMap;
 
   private latestSnapshot: TimelineSnapshot | null = null;
+  private localMutationDepth = 0;
   private readonly timelineSubscribers = new Set<(snapshot: TimelineSnapshot | null) => void>();
 
   constructor() {
@@ -122,6 +123,9 @@ export class YjsTimelineService {
     this.yPlacements = this.doc.getMap('placements') as YPlacementsMap;
 
     const handleSnapshotUpdate = () => {
+      if (this.localMutationDepth > 0) {
+        return;
+      }
       this.publishSnapshot(this.buildSnapshot());
     };
 
@@ -611,13 +615,18 @@ export class YjsTimelineService {
     mutator: (snapshot: TimelineSnapshot) => void,
     normalizeOptions?: { preferredPlacementIds?: string[]; preferredFolderSourceIds?: string[] },
   ): void {
-    this.doc.transact(() => {
-      const workingSnapshot = this.buildSnapshot() ?? createDemoTimelineSnapshot();
-      mutator(workingSnapshot);
-      const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
-      this.writeSnapshotToYjs(normalized);
-      this.publishSnapshot(normalized);
-    });
+    this.localMutationDepth += 1;
+    try {
+      this.doc.transact(() => {
+        const workingSnapshot = this.buildSnapshot() ?? createDemoTimelineSnapshot();
+        mutator(workingSnapshot);
+        const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
+        this.writeSnapshotToYjs(normalized);
+        this.publishSnapshot(normalized);
+      });
+    } finally {
+      this.localMutationDepth = Math.max(0, this.localMutationDepth - 1);
+    }
   }
 
   private buildSnapshot(): TimelineSnapshot | null {
