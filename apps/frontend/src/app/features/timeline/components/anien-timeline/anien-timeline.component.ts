@@ -1281,8 +1281,14 @@ export class AnienTimelineComponent implements OnDestroy {
           startRow: targetStartRow,
         });
       }
-      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
-      this.dragState.appliedDeltaRows = appliedDeltaRows;
+      const updatedItem = this.timelineItems().find((item) => item.id === this.dragState?.itemId);
+      if (updatedItem) {
+        this.dragState.appliedDeltaTicks = updatedItem.startTick - this.dragState.initialStartTick;
+        this.dragState.appliedDeltaRows = updatedItem.startRow - this.dragState.initialStartRow;
+      } else {
+        this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+        this.dragState.appliedDeltaRows = appliedDeltaRows;
+      }
       this.snapGuideState.set({ tick: nextSnapTick, row: nextSnapRow });
       return;
     }
@@ -1346,7 +1352,12 @@ export class AnienTimelineComponent implements OnDestroy {
         });
       }
 
-      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      const updatedItem = this.timelineItems().find((item) => item.id === this.dragState?.itemId);
+      if (updatedItem) {
+        this.dragState.appliedDeltaTicks = updatedItem.startTick - this.dragState.initialStartTick;
+      } else {
+        this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      }
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
       return;
     }
@@ -1401,7 +1412,13 @@ export class AnienTimelineComponent implements OnDestroy {
       } else {
         this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
       }
-      this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      const updatedItem = this.timelineItems().find((item) => item.id === this.dragState?.itemId);
+      if (updatedItem) {
+        this.dragState.appliedDeltaTicks =
+          updatedItem.durationTicks - this.dragState.initialDurationTicks;
+      } else {
+        this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      }
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
       return;
     }
@@ -1452,7 +1469,15 @@ export class AnienTimelineComponent implements OnDestroy {
       } else {
         this.stateService.updateFolder(this.dragState.itemId, { bodyTrackCount: nextSpan });
       }
-      this.dragState.appliedDeltaRows = appliedDeltaRows;
+      const updatedItem = this.timelineItems().find((item) => item.id === this.dragState?.itemId);
+      if (updatedItem) {
+        const updatedBodyTrackCount =
+          updatedItem.type === 'folder' ? updatedItem.bodyTrackCount : updatedItem.laneSpan;
+        this.dragState.appliedDeltaRows =
+          updatedBodyTrackCount - this.dragState.initialBodyTrackCount;
+      } else {
+        this.dragState.appliedDeltaRows = appliedDeltaRows;
+      }
       this.snapGuideState.set({ tick: null, row: nextSnapRow });
       return;
     }
@@ -1515,7 +1540,12 @@ export class AnienTimelineComponent implements OnDestroy {
         startRow: nextStartRow,
       });
     }
-    this.dragState.appliedDeltaRows = appliedDeltaRows;
+    const updatedItem = this.timelineItems().find((item) => item.id === this.dragState?.itemId);
+    if (updatedItem) {
+      this.dragState.appliedDeltaRows = updatedItem.startRow - this.dragState.initialStartRow;
+    } else {
+      this.dragState.appliedDeltaRows = appliedDeltaRows;
+    }
     this.snapGuideState.set({ tick: null, row: nextSnapRow });
   }
 
