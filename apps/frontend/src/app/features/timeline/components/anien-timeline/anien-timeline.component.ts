@@ -3,7 +3,6 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
-  NgZone,
   OnDestroy,
   ViewChild,
   computed,
@@ -729,7 +728,6 @@ interface ItemDragState {
 export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
-  private readonly ngZone = inject(NgZone);
 
   public readonly timelineItems = this.stateService.timelineItems;
   public readonly timelineRows = this.stateService.timelineRows;
@@ -1786,13 +1784,11 @@ export class AnienTimelineComponent implements OnDestroy {
       return;
     }
 
-    this.ngZone.runOutsideAngular(() => {
-      const tick = () => {
-        this.changeDetectorRef.detectChanges();
-        this.detachRenderId = window.requestAnimationFrame(tick);
-      };
+    const tick = () => {
+      this.changeDetectorRef.detectChanges();
       this.detachRenderId = window.requestAnimationFrame(tick);
-    });
+    };
+    this.detachRenderId = window.requestAnimationFrame(tick);
   }
 
   private stopZoneLessDragLoop(): void {

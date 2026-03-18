@@ -27,8 +27,7 @@
     "angular-split": "catalog:",
     "rxjs": "catalog:",
     "tslib": "catalog:",
-    "yjs": "catalog:",
-    "zone.js": "catalog:"
+    "yjs": "catalog:"
   },
   "devDependencies": {
     "@angular-eslint/builder": "catalog:",

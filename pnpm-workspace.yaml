@@ -49,7 +49,6 @@ catalog:
   y-indexeddb: ^9.0.12
   yjs: ^13.6.27
   yjs-types: ^0.0.1
-  zone.js: ~0.16.1
 
 catalogMode: strict
 
