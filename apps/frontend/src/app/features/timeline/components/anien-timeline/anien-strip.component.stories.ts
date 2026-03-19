@@ -7,6 +7,8 @@ const baseStrip: StripVM = {
   type: 'strip',
   sourceId: 'src-1',
   sourceName: 'Interview_Broll_01.mov',
+  sourceKind: 'media',
+  scheduleBrand: null,
   sourceOffsetTicks: 0,
   durationTicks: 120,
   startTick: 20,
@@ -33,6 +35,8 @@ const meta: Meta<AnienStripComponent> = {
   args: {
     item: baseStrip,
     clipPath: null,
+    sheduleStrip: false,
+    scheduleBrand: 'ae',
   },
 };
 
@@ -115,4 +119,145 @@ export const WidthLong: Story = {
       absoluteStartTick: 10,
     }),
   },
+};
+
+export const ScheduleAfterEffects: Story = {
+  name: 'Schedule - After Effects',
+  args: {
+    sheduleStrip: true,
+    scheduleBrand: 'ae',
+    item: makeStrip({
+      sourceName: 'AfterEffects Opening',
+      sourceKind: 'solid',
+      scheduleBrand: 'ae',
+      laneSpan: 2,
+      rowSpan: 2,
+      durationTicks: 180,
+    }),
+  },
+};
+
+export const SchedulePhotoshop: Story = {
+  name: 'Schedule - Photoshop',
+  args: {
+    sheduleStrip: true,
+    scheduleBrand: 'photoshop',
+    item: makeStrip({
+      sourceName: 'Photoshop Matte Paint',
+      sourceKind: 'solid',
+      scheduleBrand: 'photoshop',
+      laneSpan: 2,
+      rowSpan: 2,
+      durationTicks: 180,
+    }),
+  },
+};
+
+export const ScheduleMaya: Story = {
+  name: 'Schedule - Autodesk Maya',
+  args: {
+    sheduleStrip: true,
+    scheduleBrand: 'maya',
+    item: makeStrip({
+      sourceName: 'Maya Camera Layout',
+      sourceKind: 'solid',
+      scheduleBrand: 'maya',
+      laneSpan: 2,
+      rowSpan: 2,
+      durationTicks: 180,
+    }),
+  },
+};
+
+export const ScheduleClipStudio: Story = {
+  name: 'Schedule - ClipStudio',
+  args: {
+    sheduleStrip: true,
+    scheduleBrand: 'clipstudio',
+    item: makeStrip({
+      sourceName: 'ClipStudio Character Frame',
+      sourceKind: 'solid',
+      scheduleBrand: 'clipstudio',
+      laneSpan: 2,
+      rowSpan: 2,
+      durationTicks: 180,
+    }),
+  },
+};
+
+export const SchedulePresetOrder: Story = {
+  name: 'Schedule - Preset Order',
+  render: () => ({
+    props: {
+      strips: [
+        makeStrip({
+          id: 'schedule-order-1',
+          sourceId: 'schedule-source-1',
+          sourceName: 'AfterEffects Schedule Strip',
+          sourceKind: 'solid',
+          scheduleBrand: 'ae',
+          startRow: 0,
+          absoluteStartRow: 0,
+          laneSpan: 2,
+          rowSpan: 2,
+        }),
+        makeStrip({
+          id: 'schedule-order-2',
+          sourceId: 'schedule-source-2',
+          sourceName: 'Photoshop Schedule Strip',
+          sourceKind: 'solid',
+          scheduleBrand: 'photoshop',
+          startRow: 2,
+          absoluteStartRow: 2,
+          laneSpan: 2,
+          rowSpan: 2,
+        }),
+        makeStrip({
+          id: 'schedule-order-3',
+          sourceId: 'schedule-source-3',
+          sourceName: 'Maya Schedule Strip',
+          sourceKind: 'solid',
+          scheduleBrand: 'maya',
+          startRow: 4,
+          absoluteStartRow: 4,
+          laneSpan: 2,
+          rowSpan: 2,
+        }),
+        makeStrip({
+          id: 'schedule-order-4',
+          sourceId: 'schedule-source-4',
+          sourceName: 'ClipStudio Schedule Strip',
+          sourceKind: 'solid',
+          scheduleBrand: 'clipstudio',
+          startRow: 6,
+          absoluteStartRow: 6,
+          laneSpan: 2,
+          rowSpan: 2,
+        }),
+        makeStrip({
+          id: 'schedule-order-5',
+          sourceId: 'schedule-source-5',
+          sourceName: 'ClipStudio Schedule Strip 2',
+          sourceKind: 'solid',
+          scheduleBrand: 'clipstudio',
+          startRow: 8,
+          absoluteStartRow: 8,
+          laneSpan: 2,
+          rowSpan: 2,
+        }),
+      ],
+    },
+    template: `
+      <div style="position: relative; height: 360px; width: 680px; background: #0b0f12; --timeline-tick-size: 2px; --timeline-track-height: 34px; --timeline-strip-offset: 2px; --timeline-strip-padding-x: 9px;">
+        @for (strip of strips; track strip.id) {
+          <app-anien-strip
+            [item]="strip"
+            [clipPath]="null"
+            [sheduleStrip]="true"
+            [scheduleBrand]="strip.scheduleBrand ?? 'ae'"
+          />
+        }
+      </div>
+    `,
+  }),
 };

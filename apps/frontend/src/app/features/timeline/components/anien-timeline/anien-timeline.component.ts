@@ -133,6 +133,8 @@ interface ItemDragState {
             <app-anien-strip
               [item]="item"
               [clipPath]="itemClipPath(item)"
+              [sheduleStrip]="item.sourceKind === 'solid'"
+              [scheduleBrand]="item.scheduleBrand ?? 'ae'"
               (itemMouseDown)="onItemMouseDown($event, item)"
               (itemKeydown)="onItemKeydown($event, item.id)"
               (resizeStart)="onItemResizeStart($event, item)"
@@ -163,6 +165,7 @@ interface ItemDragState {
       <div class="actions-group">
         <button type="button" (click)="createStrip()">Add Strip</button>
         <button type="button" (click)="createFolder()">Add Folder</button>
+        <button type="button" (click)="createShedulePresetFolder()">Add Shedule Folder</button>
       </div>
       <div class="actions-label">Selection Actions</div>
       <div class="actions-group">
@@ -750,6 +753,10 @@ export class AnienTimelineComponent implements OnDestroy {
 
   public createFolder(): void {
     this.stateService.createFolder();
+  }
+
+  public createShedulePresetFolder(): void {
+    this.stateService.createShedulePresetFolder();
   }
 
   public resetDemoTimeline(): void {

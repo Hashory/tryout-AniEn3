@@ -20,11 +20,15 @@ interface TimelineDebugStats {
   placementCount: number;
 }
 
+export type ScheduleStripBrand = 'ae' | 'photoshop' | 'maya' | 'clipstudio';
+
 export interface StripVM {
   id: string;
   type: 'strip';
   sourceId: string;
   sourceName: string;
+  sourceKind: 'media' | 'generated' | 'solid' | 'unknown';
+  scheduleBrand: ScheduleStripBrand | null;
   sourceOffsetTicks: number;
   durationTicks: number;
   startTick: number;
@@ -156,6 +160,8 @@ export class TimelineStateService {
             type: 'strip',
             sourceId: stripSource.id,
             sourceName: stripSource.name,
+            sourceKind: stripSource.kind,
+            scheduleBrand: this.resolveScheduleStripBrand(stripSource.name, stripSource.kind),
             sourceOffsetTicks: placement.sourceOffsetTicks,
             durationTicks: placement.durationTicks,
             startTick: placement.startTick,
@@ -379,6 +385,69 @@ export class TimelineStateService {
         bodyTrackCount: 1,
       },
     );
+  }
+
+  public createShedulePresetFolder(): string | null {
+    const context = this.resolveInsertionContext();
+    if (!context) {
+      return null;
+    }
+
+    const stripCount = 5;
+    const stripLaneSpan = 2;
+    const stripDurationTicks = 200;
+    const stripStartTick = 0;
+
+    const createdFolderId = this.addFolder(
+      {
+        parentFolderId: context.parentFolderId,
+        trackIndex: context.trackIndex,
+        position: context.position,
+      },
+      {
+        name: 'Shedule Preset Folder',
+        startTick: context.startTick,
+        durationTicks: stripDurationTicks,
+        bodyTrackCount: stripCount * stripLaneSpan,
+      },
+    );
+
+    if (!createdFolderId) {
+      return null;
+    }
+
+    const createdFolder = this.yjsService.getItemById(createdFolderId);
+    if (!createdFolder || createdFolder.type !== 'folder') {
+      return null;
+    }
+
+    const scheduleSourceNames = [
+      'AfterEffects Schedule Strip',
+      'Photoshop Schedule Strip',
+      'Maya Schedule Strip',
+      'ClipStudio Schedule Strip',
+      'ClipStudio Schedule Strip 2',
+    ];
+
+    for (let stripIndex = 0; stripIndex < stripCount; stripIndex += 1) {
+      const trackIndex = stripIndex * stripLaneSpan;
+      this.addStrip(
+        {
+          parentFolderId: createdFolder.sourceId,
+          trackIndex,
+        },
+        {
+          sourceName: scheduleSourceNames[stripIndex] ?? `Shedule Strip ${stripIndex + 1}`,
+          kind: 'solid',
+          startTick: stripStartTick,
+          durationTicks: stripDurationTicks,
+          laneSpan: stripLaneSpan,
+        },
+      );
+    }
+
+    this.selectItem(createdFolderId);
+    return createdFolderId;
   }
 
   public updateStrip(itemId: string, updates: StripUpdateInput): boolean {
@@ -611,6 +680,42 @@ export class TimelineStateService {
 
   private createDefaultFolderName(): string {
     return 'New Folder';
+  }
+
+  private resolveScheduleStripBrand(
+    sourceName: string,
+    sourceKind: StripVM['sourceKind'],
+  ): ScheduleStripBrand | null {
+    if (sourceKind !== 'solid') {
+      return null;
+    }
+
+    const normalizedName = sourceName.toLowerCase();
+    if (normalizedName.includes('photoshop')) {
+      return 'photoshop';
+    }
+
+    if (
+      normalizedName.includes('clipstudio') ||
+      normalizedName.includes('clip studio') ||
+      normalizedName.includes('clip-studio')
+    ) {
+      return 'clipstudio';
+    }
+
+    if (normalizedName.includes('maya')) {
+      return 'maya';
+    }
+
+    if (
+      normalizedName.includes('aftereffects') ||
+      normalizedName.includes('after effects') ||
+      /\bae\b/.test(normalizedName)
+    ) {
+      return 'ae';
+    }
+
+    return 'ae';
   }
 
   private clampZoomLevel(level: number): number {

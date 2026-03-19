@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import * as Y from 'yjs';
 import { vi } from 'vitest';
 import { AnienTimelineComponent } from './anien-timeline.component';
-import { TimelineStateService } from '../../services/timeline-state.service';
+import { StripVM, TimelineStateService } from '../../services/timeline-state.service';
 import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
 
 class FakeYjsDocumentService {
@@ -308,6 +308,54 @@ describe('AnienTimelineComponent', () => {
     fixture.detectChanges();
 
     expect(component.timelineItems().length).toBe(countBefore);
+  });
+
+  it('adds a folder with five scheduled strips from Create action button', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+
+    const createSheduleFolderButton = Array.from(
+      fixture.nativeElement.querySelectorAll('.timeline-actions button') as NodeListOf<HTMLElement>,
+    ).find((button) => button.textContent?.trim() === 'Add Shedule Folder') as
+      | HTMLButtonElement
+      | undefined;
+
+    expect(createSheduleFolderButton).toBeTruthy();
+    createSheduleFolderButton?.click();
+    fixture.detectChanges();
+
+    const createdFolder = component
+      .timelineItems()
+      .find((item) => item.type === 'folder' && item.name === 'Shedule Preset Folder');
+
+    expect(createdFolder).toBeTruthy();
+    if (!createdFolder || createdFolder.type !== 'folder') {
+      return;
+    }
+
+    const createdStrips = component
+      .timelineItems()
+      .filter(
+        (item): item is StripVM =>
+          item.type === 'strip' && item.parentFolderId === createdFolder.sourceId,
+      );
+
+    expect(createdStrips).toHaveLength(5);
+    expect(createdFolder.bodyTrackCount).toBe(10);
+    expect(createdStrips.every((item) => item.laneSpan === 2)).toBe(true);
+    expect(createdStrips.every((item) => item.sourceKind === 'solid')).toBe(true);
+
+    const stripStartTicks = new Set(createdStrips.map((item) => item.startTick));
+    expect(stripStartTicks.size).toBe(1);
+    expect(stripStartTicks.has(0)).toBe(true);
+
+    const startRows = createdStrips.map((item) => item.startRow).sort((a, b) => a - b);
+    expect(startRows).toEqual([0, 2, 4, 6, 8]);
+
+    const orderedBrands = [...createdStrips]
+      .sort((left, right) => left.startRow - right.startRow)
+      .map((item) => item.scheduleBrand);
+    expect(orderedBrands).toEqual(['ae', 'photoshop', 'maya', 'clipstudio', 'clipstudio']);
   });
 
   it('undoes latest timeline change with Ctrl+Z', () => {

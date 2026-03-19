@@ -1,5 +1,12 @@
-import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
-import { StripVM } from '../../services/timeline-state.service';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ScheduleStripBrand, StripVM } from '../../services/timeline-state.service';
+
+const SCHEDULE_BADGE_LABELS: Record<ScheduleStripBrand, string> = {
+  ae: 'Ae',
+  photoshop: 'Ps',
+  maya: 'Ma',
+  clipstudio: 'Cs',
+};
 
 export interface TimelineItemResizeStart {
   event: MouseEvent;
@@ -24,6 +31,13 @@ export interface TimelineItemResizeStart {
       "
       [style.left]="'calc(var(--timeline-tick-size) * ' + item().absoluteStartTick + ')'"
       [style.clip-path]="clipPath()"
+      [class.lane-span-1]="laneSpan() === 1"
+      [class.lane-span-2]="laneSpan() === 2"
+      [class.shedule-strip]="sheduleStrip()"
+      [class.brand-ae]="sheduleStrip() && scheduleBrand() === 'ae'"
+      [class.brand-photoshop]="sheduleStrip() && scheduleBrand() === 'photoshop'"
+      [class.brand-maya]="sheduleStrip() && scheduleBrand() === 'maya'"
+      [class.brand-clipstudio]="sheduleStrip() && scheduleBrand() === 'clipstudio'"
       [class.selected]="item().isSelected"
       [class.ui-hovered]="isHovered()"
       [class.ui-focused]="isFocused()"
@@ -38,7 +52,31 @@ export interface TimelineItemResizeStart {
     >
       <div class="resize-handle top" (mousedown)="onResizeStart($event, 'top')"></div>
       <div class="resize-handle left" (mousedown)="onResizeStart($event, 'left')"></div>
-      {{ item().sourceName }}
+      @if (sheduleStrip()) {
+        <!-- sheduleStrip -->
+        <div class="shedule-strip-content">
+          <div class="shedule-icon" [class.clipstudio-mark]="scheduleBrand() === 'clipstudio'" [class.maya-mark]="scheduleBrand() === 'maya'">
+            @if (scheduleBrand() === 'clipstudio' || scheduleBrand() === 'maya') {
+            } @else {
+              <span>{{ scheduleBadgeLabel() }}</span>
+            }
+          </div>
+          <div class="shedule-text">
+            <div class="shedule-title">{{ item().sourceName }}</div>
+            <div class="shedule-meta">
+              <span class="worker">作業者:○○さん</span>
+              <span class="deadline">~10/3</span>
+            </div>
+          </div>
+        </div>
+      } @else {
+        <!-- NomalStrip -->
+        <span>{{ item().sourceName }}</span>
+        @if (laneSpan() === 2) {
+          <span class="lane2-preview">Preview</span>
+        }
+      }
+
       <div class="resize-handle right" (mousedown)="onResizeStart($event, 'right')"></div>
       <div class="resize-handle bottom" (mousedown)="onResizeStart($event, 'bottom')"></div>
     </div>
@@ -67,20 +105,137 @@ export interface TimelineItemResizeStart {
           box-shadow 120ms ease;
       }
 
-      .strip.ui-hovered {
-        filter: brightness(1.06);
+      .strip.lane-span-1 {
+        /* Design for laneSpan 1 */
+      }
+
+      .strip.lane-span-2 {
+        /* Design for laneSpan 2 */
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding-block: 2px;
+      }
+
+      .lane2-preview {
+        flex: 1;
+        background-color: #1570a1ff;
+        border-radius: 2px;
+        width: 100%;
+      }
+
+      .shedule-strip {
+        border: 2px dashed;
+        opacity: 0.7;
+      }
+
+      .shedule-strip.brand-ae {
+        background-color: #2b347d;
+        color: #e8ebff;
+        border-color: #939af6;
+      }
+
+      .shedule-strip.brand-photoshop {
+        background-color: #032b52;
+        color: #d4efff;
+        border-color: #4dc1ff;
+      }
+
+      .shedule-strip.brand-maya {
+        background-color: #1c4744;
+        color: #d6f8f0;
+        border-color: #64d8c2;
+      }
+
+      .shedule-strip.brand-clipstudio {
+        background: #cccccd;
+        color: #2f2f31;
+      }
+
+      .shedule-strip-content {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 100%;
+        width: 100%;
+      }
+
+      .shedule-icon {
+        background-color: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
+        width: 42px;
+        height: 42px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 1.4em;
+        flex-shrink: 0;
+      }
+
+      .shedule-strip.brand-ae .shedule-icon {
+        background-color: #120f34;
+        color: #c4bcff;
+      }
+
+      .shedule-strip.brand-photoshop .shedule-icon {
+        background-color: #001e36;
+        color: #41cbff;
+      }
+
+      .shedule-strip.brand-maya .shedule-icon {
+        background-color: #0e2f2b;
+        color: #8df0db;
+      }
+
+      .shedule-strip.brand-clipstudio .shedule-icon {
+        background: linear-gradient(180deg, #fdfdfd 0%, #e9e9eb 100%);
+        color: #343436;
+        border: 1px solid rgba(77, 77, 82, 0.1);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.85),
+          0 1px 1px rgba(0, 0, 0, 0.06);
+      }
+
+      .shedule-strip.brand-clipstudio .clipstudio-mark {
+        background: url('https://upload.wikimedia.org/wikipedia/commons/1/14/Clipstudiopaint_app_logo.png') center center / contain no-repeat;
+      }
+
+        .shedule-strip.brand-maya .maya-mark {
+        background: url('https://images.seeklogo.com/logo-png/48/1/autodesk-maya-logo-png_seeklogo-482401.png') center center / contain no-repeat;
+        }
+
+      .shedule-text {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      .shedule-title {
+        font-weight: 700;
+        font-size: 1.1em;
+        line-height: 1.2;
+      }
+
+      .shedule-meta {
+        display: flex;
+        gap: 12px;
+        font-size: 0.9em;
+        font-weight: 600;
+      }
+
+      .shedule-meta span {
+        text-decoration: underline;
       }
 
       .strip.ui-focused {
-        box-shadow: 0 0 0 2px rgba(141, 215, 255, 0.7) inset;
-      }
-
-      .strip.ui-pressed {
-        filter: brightness(0.92);
+        box-shadow: 0 0 0 3px rgba(26, 159, 231, 0.8) inset;
       }
 
       .strip.selected {
-        box-shadow: 0 0 0 2px #8dd7ff inset;
+        box-shadow: 0 0 0 3px rgb(26, 159, 231) inset;
       }
 
       .strip .resize-handle {
@@ -125,6 +280,8 @@ export interface TimelineItemResizeStart {
 export class AnienStripComponent {
   public readonly item = input.required<StripVM>();
   public readonly clipPath = input<string | null>(null);
+  public readonly sheduleStrip = input(false);
+  public readonly scheduleBrand = input<ScheduleStripBrand>('ae');
 
   public readonly itemMouseDown = output<MouseEvent>();
   public readonly itemKeydown = output<KeyboardEvent>();
@@ -133,6 +290,9 @@ export class AnienStripComponent {
   public readonly isHovered = signal(false);
   public readonly isFocused = signal(false);
   public readonly isPressed = signal(false);
+
+  public readonly laneSpan = computed(() => this.item().laneSpan);
+  public readonly scheduleBadgeLabel = computed(() => SCHEDULE_BADGE_LABELS[this.scheduleBrand()]);
 
   public onItemMouseDown(event: MouseEvent): void {
     this.isPressed.set(true);
