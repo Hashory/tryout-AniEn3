@@ -291,6 +291,67 @@ describe('AnienTimelineComponent', () => {
     expect(Math.abs(afterAnchorTick - beforeAnchorTick)).toBeLessThan(0.001);
   });
 
+  it('undoes latest timeline change from timeline-actions Undo button', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const countBefore = component.timelineItems().length;
+    stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 1,
+      },
+      {
+        sourceName: 'Undo Button Probe',
+        kind: 'generated',
+        startTick: 12,
+        durationTicks: 30,
+      },
+    );
+    fixture.detectChanges();
+    expect(component.timelineItems().length).toBe(countBefore + 1);
+
+    const undoButton = Array.from(
+      fixture.nativeElement.querySelectorAll('.timeline-actions button') as NodeListOf<HTMLElement>,
+    ).find((button) => button.textContent?.trim() === 'Undo') as HTMLButtonElement | undefined;
+
+    expect(undoButton).toBeTruthy();
+    expect(undoButton?.disabled).toBe(false);
+
+    undoButton?.click();
+    fixture.detectChanges();
+
+    expect(component.timelineItems().length).toBe(countBefore);
+  });
+
+  it('undoes latest timeline change with Ctrl+Z', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const countBefore = component.timelineItems().length;
+    stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 1,
+      },
+      {
+        sourceName: 'Undo Shortcut Probe',
+        kind: 'generated',
+        startTick: 18,
+        durationTicks: 28,
+      },
+    );
+    fixture.detectChanges();
+    expect(component.timelineItems().length).toBe(countBefore + 1);
+
+    component.onWindowKeydown(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+    fixture.detectChanges();
+
+    expect(component.timelineItems().length).toBe(countBefore);
+  });
+
   it('reparents a strip when dropped inside folder body', () => {
     stateService.resetToDemoTimeline();
     const rootFolderSourceId = stateService.rootFolderSourceId();

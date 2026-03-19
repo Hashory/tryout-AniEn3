@@ -262,6 +262,9 @@ interface ItemDragState {
         <button type="button" (click)="deleteSelected()" [disabled]="!hasSelection()">
           Delete Selected
         </button>
+        <button type="button" class="secondary-action" (click)="undo()" [disabled]="!canUndo()">
+          Undo
+        </button>
       </div>
       <div class="actions-label">Debug</div>
       <div class="actions-group">
@@ -738,6 +741,7 @@ export class AnienTimelineComponent implements OnDestroy {
   public readonly rootFolderSourceId = this.stateService.rootFolderSourceId;
   public readonly selectedItemIds = this.stateService.selectedItemIds;
   public readonly hasSelection = computed(() => this.selectedItemIds().size > 0);
+  public readonly canUndo = this.stateService.canUndo;
   public readonly currentTick = this.stateService.currentTick;
   public readonly zoomLevel = this.stateService.zoomLevel;
   public readonly tickSizePx = this.stateService.tickSizePx;
@@ -1036,6 +1040,14 @@ export class AnienTimelineComponent implements OnDestroy {
   }
 
   public onWindowKeydown(event: KeyboardEvent): void {
+    if (this.isUndoShortcut(event)) {
+      if (!this.isEditableTarget(event.target)) {
+        event.preventDefault();
+        this.undo();
+      }
+      return;
+    }
+
     if (event.code !== 'Space') {
       return;
     }
@@ -1593,6 +1605,11 @@ export class AnienTimelineComponent implements OnDestroy {
 
   public deleteSelected(): void {
     this.stateService.deleteSelectedItem();
+  }
+
+  public undo(): void {
+    this.stateService.undo();
+    this.requestRender();
   }
 
   public shiftSelection(delta: number): void {
@@ -2233,5 +2250,17 @@ export class AnienTimelineComponent implements OnDestroy {
       startAbsoluteRow: bestRow,
       guideRow: bestRow,
     };
+  }
+
+  private isUndoShortcut(event: KeyboardEvent): boolean {
+    return event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'z';
+  }
+
+  private isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return target.matches('input, textarea, [contenteditable="true"], [contenteditable=""]');
   }
 }

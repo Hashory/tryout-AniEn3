@@ -98,6 +98,7 @@ interface YWritableMap {
 })
 export class YjsTimelineService {
   private readonly collab = inject(YjsDocumentService);
+  private readonly localTransactionOrigin = { source: 'timeline-local' };
 
   private readonly doc: Y.Doc;
   private readonly broadcastChannel: BroadcastChannel;
@@ -107,6 +108,7 @@ export class YjsTimelineService {
   private readonly yFolderSources: YFolderSourcesMap;
   private readonly yFolderChildren: YFolderChildrenMap;
   private readonly yPlacements: YPlacementsMap;
+  private readonly undoManager: Y.UndoManager;
 
   private latestSnapshot: TimelineSnapshot | null = null;
   private readonly timelineSubscribers = new Set<(snapshot: TimelineSnapshot | null) => void>();
@@ -120,6 +122,12 @@ export class YjsTimelineService {
     this.yFolderSources = this.doc.getMap('folderSources') as YFolderSourcesMap;
     this.yFolderChildren = this.doc.getMap('folderChildren') as YFolderChildrenMap;
     this.yPlacements = this.doc.getMap('placements') as YPlacementsMap;
+    this.undoManager = new Y.UndoManager(
+      [this.yRoot, this.yStripSources, this.yFolderSources, this.yFolderChildren, this.yPlacements],
+      {
+        trackedOrigins: new Set([this.localTransactionOrigin]),
+      },
+    );
 
     const handleSnapshotUpdate = () => {
       this.publishSnapshot(this.buildSnapshot());
@@ -172,7 +180,22 @@ export class YjsTimelineService {
       const seededSnapshot = createDemoTimelineSnapshot();
       this.writeSnapshotToYjs(seededSnapshot);
       this.publishSnapshot(seededSnapshot);
-    });
+    }, this.localTransactionOrigin);
+  }
+
+  public undo(): boolean {
+    if (!this.undoManager.canUndo()) {
+      return false;
+    }
+
+    this.undoManager.stopCapturing();
+    this.undoManager.undo();
+    this.publishSnapshot(this.buildSnapshot());
+    return true;
+  }
+
+  public canUndo(): boolean {
+    return this.undoManager.canUndo();
   }
 
   public getDebugSnapshot(): TimelineSnapshot | null {
@@ -617,7 +640,7 @@ export class YjsTimelineService {
       const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
       this.writeSnapshotToYjs(normalized);
       this.publishSnapshot(normalized);
-    });
+    }, this.localTransactionOrigin);
   }
 
   private buildSnapshot(): TimelineSnapshot | null {

@@ -84,6 +84,10 @@ export class TimelineStateService {
   public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
   public readonly zoomLevel = this._zoomLevel.asReadonly();
+  public readonly canUndo = computed(() => {
+    this.model();
+    return this.yjsService.canUndo();
+  });
   public readonly tickSizePx = computed(() => this.BASE_TICK_SIZE_PX * this.zoomLevel());
   public readonly rootFolderSourceId = computed(
     () => this.model()?.root.rootFolderSourceId ?? null,
@@ -239,6 +243,7 @@ export class TimelineStateService {
   constructor() {
     const unsubscribe = this.yjsService.subscribeTimeline((snapshot) => {
       this.model.set(snapshot);
+      this.reconcileSelection(snapshot);
     });
 
     this.destroyRef.onDestroy(unsubscribe);
@@ -266,6 +271,10 @@ export class TimelineStateService {
     this.yjsService.resetToDemoTimeline();
     this._currentTick.set(0);
     this._selectedItemIds.set(new Set());
+  }
+
+  public undo(): boolean {
+    return this.yjsService.undo();
   }
 
   public selectItem(id: string, multiSelect = false): void {
@@ -499,6 +508,29 @@ export class TimelineStateService {
     }
 
     if (changed) {
+      this._selectedItemIds.set(nextSelection);
+    }
+  }
+
+  private reconcileSelection(snapshot: TimelineSnapshot | null): void {
+    if (!snapshot) {
+      this._selectedItemIds.set(new Set());
+      return;
+    }
+
+    const selectedIds = this._selectedItemIds();
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    const nextSelection = new Set<string>();
+    for (const id of selectedIds) {
+      if (snapshot.placements[id]) {
+        nextSelection.add(id);
+      }
+    }
+
+    if (nextSelection.size !== selectedIds.size) {
       this._selectedItemIds.set(nextSelection);
     }
   }
