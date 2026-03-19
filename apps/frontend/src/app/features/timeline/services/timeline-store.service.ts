@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import * as Y from 'yjs';
 import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
 import {
@@ -20,6 +20,9 @@ import { createDemoTimelineSnapshot, normalizeTimelineSnapshot } from './timelin
 interface TimelineUpdateMessage {
   type: 'timeline-update';
   data: TimelineSnapshot | null;
+  senderId: string;
+  updateId: string;
+  sentAt: number;
 }
 
 export interface StripCreationInput {
@@ -96,9 +99,11 @@ interface YWritableMap {
 @Injectable({
   providedIn: 'root',
 })
-export class YjsTimelineService {
+export class YjsTimelineService implements OnDestroy {
   private readonly collab = inject(YjsDocumentService);
   private readonly localTransactionOrigin = { source: 'timeline-local' };
+  private readonly tabId = crypto.randomUUID();
+  private readonly MAX_SEEN_UPDATE_IDS = 256;
 
   private readonly doc: Y.Doc;
   private readonly broadcastChannel: BroadcastChannel;
@@ -112,6 +117,23 @@ export class YjsTimelineService {
 
   private latestSnapshot: TimelineSnapshot | null = null;
   private readonly timelineSubscribers = new Set<(snapshot: TimelineSnapshot | null) => void>();
+  private localMutationDepth = 0;
+  private queuedSnapshotForPublish: TimelineSnapshot | null = null;
+  private hasQueuedPublish = false;
+  private queuedPublishNeedsBroadcast = false;
+  private publishFlushFrameId: number | null = null;
+  private broadcastFlushFrameId: number | null = null;
+  private queuedBroadcastMessage: TimelineUpdateMessage | null = null;
+  private readonly seenUpdateIdSet = new Set<string>();
+  private readonly seenUpdateIdOrder: string[] = [];
+
+  private readonly handleSnapshotUpdate = () => {
+    if (this.localMutationDepth > 0) {
+      return;
+    }
+
+    this.enqueuePublish(this.buildSnapshot(), { shouldBroadcast: false });
+  };
 
   constructor() {
     this.doc = this.collab.getDoc();
@@ -129,38 +151,59 @@ export class YjsTimelineService {
       },
     );
 
-    const handleSnapshotUpdate = () => {
-      this.publishSnapshot(this.buildSnapshot());
-    };
-
-    this.yRoot.observe(handleSnapshotUpdate);
-    this.yStripSources.observeDeep(handleSnapshotUpdate);
-    this.yFolderSources.observeDeep(handleSnapshotUpdate);
-    this.yFolderChildren.observeDeep(handleSnapshotUpdate);
-    this.yPlacements.observeDeep(handleSnapshotUpdate);
+    this.yRoot.observe(this.handleSnapshotUpdate);
+    this.yStripSources.observeDeep(this.handleSnapshotUpdate);
+    this.yFolderSources.observeDeep(this.handleSnapshotUpdate);
+    this.yFolderChildren.observeDeep(this.handleSnapshotUpdate);
+    this.yPlacements.observeDeep(this.handleSnapshotUpdate);
 
     this.collab.onSynced(() => {
       this.ensureSourcePlacementSchema();
-      this.publishSnapshot(this.buildSnapshot());
-    });
-
-    this.doc.on('update', () => {
-      const message: TimelineUpdateMessage = {
-        type: 'timeline-update',
-        data: this.latestSnapshot,
-      };
-      this.broadcastChannel.postMessage(message);
+      this.publishNow(this.buildSnapshot(), { shouldBroadcast: false });
     });
 
     this.broadcastChannel.onmessage = (event: MessageEvent<TimelineUpdateMessage>) => {
       const message = event.data;
       if (message.type === 'timeline-update') {
-        this.publishSnapshot(message.data ?? null);
+        if (message.senderId === this.tabId) {
+          return;
+        }
+
+        if (this.hasSeenUpdateId(message.updateId)) {
+          return;
+        }
+
+        this.markSeenUpdateId(message.updateId);
+        this.enqueuePublish(message.data ?? null, { shouldBroadcast: false });
       }
     };
 
     this.ensureSourcePlacementSchema();
-    this.publishSnapshot(this.buildSnapshot());
+    this.publishNow(this.buildSnapshot(), { shouldBroadcast: false });
+  }
+
+  public ngOnDestroy(): void {
+    this.yRoot.unobserve(this.handleSnapshotUpdate);
+    this.yStripSources.unobserveDeep(this.handleSnapshotUpdate);
+    this.yFolderSources.unobserveDeep(this.handleSnapshotUpdate);
+    this.yFolderChildren.unobserveDeep(this.handleSnapshotUpdate);
+    this.yPlacements.unobserveDeep(this.handleSnapshotUpdate);
+
+    this.broadcastChannel.onmessage = null;
+    this.broadcastChannel.close();
+
+    if (this.publishFlushFrameId !== null) {
+      window.cancelAnimationFrame(this.publishFlushFrameId);
+      this.publishFlushFrameId = null;
+    }
+
+    if (this.broadcastFlushFrameId !== null) {
+      window.cancelAnimationFrame(this.broadcastFlushFrameId);
+      this.broadcastFlushFrameId = null;
+    }
+
+    this.queuedBroadcastMessage = null;
+    this.hasQueuedPublish = false;
   }
 
   public subscribeTimeline(listener: (snapshot: TimelineSnapshot | null) => void): () => void {
@@ -179,8 +222,9 @@ export class YjsTimelineService {
     this.doc.transact(() => {
       const seededSnapshot = createDemoTimelineSnapshot();
       this.writeSnapshotToYjs(seededSnapshot);
-      this.publishSnapshot(seededSnapshot);
     }, this.localTransactionOrigin);
+
+    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
   }
 
   public undo(): boolean {
@@ -190,7 +234,7 @@ export class YjsTimelineService {
 
     this.undoManager.stopCapturing();
     this.undoManager.undo();
-    this.publishSnapshot(this.buildSnapshot());
+    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
     return true;
   }
 
@@ -618,7 +662,7 @@ export class YjsTimelineService {
     if (snapshot?.root.rootFolderSourceId) {
       const normalized = normalizeTimelineSnapshot(snapshot);
       this.writeSnapshotToYjs(normalized);
-      this.publishSnapshot(normalized);
+      this.publishNow(normalized, { shouldBroadcast: true });
       return;
     }
 
@@ -626,21 +670,125 @@ export class YjsTimelineService {
       this.clearDocument();
       const seededSnapshot = createDemoTimelineSnapshot();
       this.writeSnapshotToYjs(seededSnapshot);
-      this.publishSnapshot(seededSnapshot);
-    });
+    }, this.localTransactionOrigin);
+
+    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
   }
 
   private mutateSnapshot(
     mutator: (snapshot: TimelineSnapshot) => void,
     normalizeOptions?: { preferredPlacementIds?: string[]; preferredFolderSourceIds?: string[] },
   ): void {
-    this.doc.transact(() => {
-      const workingSnapshot = this.buildSnapshot() ?? createDemoTimelineSnapshot();
-      mutator(workingSnapshot);
-      const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
-      this.writeSnapshotToYjs(normalized);
-      this.publishSnapshot(normalized);
-    }, this.localTransactionOrigin);
+    let nextSnapshot: TimelineSnapshot | null = null;
+    this.localMutationDepth += 1;
+    try {
+      this.doc.transact(() => {
+        const workingSnapshot = this.buildSnapshot() ?? createDemoTimelineSnapshot();
+        mutator(workingSnapshot);
+        const normalized = normalizeTimelineSnapshot(workingSnapshot, normalizeOptions);
+        this.writeSnapshotToYjs(normalized);
+        nextSnapshot = normalized;
+      }, this.localTransactionOrigin);
+    } finally {
+      this.localMutationDepth -= 1;
+    }
+
+    this.publishNow(nextSnapshot ?? this.buildSnapshot(), { shouldBroadcast: true });
+  }
+
+  private publishNow(
+    snapshot: TimelineSnapshot | null,
+    options: { shouldBroadcast: boolean },
+  ): void {
+    this.publishSnapshot(snapshot);
+    if (options.shouldBroadcast) {
+      this.enqueueBroadcast(snapshot);
+    }
+  }
+
+  private enqueuePublish(
+    snapshot: TimelineSnapshot | null,
+    options: { shouldBroadcast: boolean },
+  ): void {
+    this.queuedSnapshotForPublish = snapshot;
+    this.hasQueuedPublish = true;
+    this.queuedPublishNeedsBroadcast = this.queuedPublishNeedsBroadcast || options.shouldBroadcast;
+
+    if (this.publishFlushFrameId !== null) {
+      return;
+    }
+
+    this.publishFlushFrameId = window.requestAnimationFrame(() => {
+      this.publishFlushFrameId = null;
+      this.flushQueuedPublish();
+    });
+  }
+
+  private flushQueuedPublish(): void {
+    if (!this.hasQueuedPublish) {
+      return;
+    }
+
+    const snapshot = this.queuedSnapshotForPublish;
+    const shouldBroadcast = this.queuedPublishNeedsBroadcast;
+    this.hasQueuedPublish = false;
+    this.queuedSnapshotForPublish = null;
+    this.queuedPublishNeedsBroadcast = false;
+
+    this.publishSnapshot(snapshot);
+    if (shouldBroadcast) {
+      this.enqueueBroadcast(snapshot);
+    }
+  }
+
+  private enqueueBroadcast(snapshot: TimelineSnapshot | null): void {
+    const message: TimelineUpdateMessage = {
+      type: 'timeline-update',
+      data: snapshot,
+      senderId: this.tabId,
+      updateId: crypto.randomUUID(),
+      sentAt: Date.now(),
+    };
+
+    this.queuedBroadcastMessage = message;
+    this.markSeenUpdateId(message.updateId);
+
+    if (this.broadcastFlushFrameId !== null) {
+      return;
+    }
+
+    this.broadcastFlushFrameId = window.requestAnimationFrame(() => {
+      this.broadcastFlushFrameId = null;
+      const pendingMessage = this.queuedBroadcastMessage;
+      this.queuedBroadcastMessage = null;
+      if (!pendingMessage) {
+        return;
+      }
+
+      this.broadcastChannel.postMessage(pendingMessage);
+    });
+  }
+
+  private hasSeenUpdateId(updateId: string): boolean {
+    return this.seenUpdateIdSet.has(updateId);
+  }
+
+  private markSeenUpdateId(updateId: string): void {
+    if (this.seenUpdateIdSet.has(updateId)) {
+      return;
+    }
+
+    this.seenUpdateIdSet.add(updateId);
+    this.seenUpdateIdOrder.push(updateId);
+    if (this.seenUpdateIdOrder.length <= this.MAX_SEEN_UPDATE_IDS) {
+      return;
+    }
+
+    const evictedId = this.seenUpdateIdOrder.shift();
+    if (!evictedId) {
+      return;
+    }
+    this.seenUpdateIdSet.delete(evictedId);
   }
 
   private buildSnapshot(): TimelineSnapshot | null {

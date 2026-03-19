@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import * as Y from 'yjs';
+import { vi } from 'vitest';
 import { AnienTimelineComponent } from './anien-timeline.component';
 import { TimelineStateService } from '../../services/timeline-state.service';
 import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
@@ -9,6 +10,10 @@ class FakeBroadcastChannel {
 
   public postMessage(): void {
     // No-op for unit tests.
+  }
+
+  public close(): void {
+    this.onmessage = null;
   }
 }
 
@@ -55,6 +60,10 @@ describe('AnienTimelineComponent', () => {
     component = fixture.componentInstance;
     stateService = TestBed.inject(TimelineStateService);
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should create', () => {
@@ -590,5 +599,101 @@ describe('AnienTimelineComponent', () => {
 
     expect(childStripElement).toBeTruthy();
     expect(childStripElement?.style.clipPath).toContain('inset(');
+  });
+
+  it('deduplicates multiple requestRender calls into a single frame detectChanges', () => {
+    const rafQueue: FrameRequestCallback[] = [];
+    const detectChangesSpy = vi.spyOn(
+      (component as unknown as { changeDetectorRef: { detectChanges: () => void } })
+        .changeDetectorRef,
+      'detectChanges',
+    );
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafQueue.push(callback);
+        return rafQueue.length;
+      },
+    );
+
+    (component as unknown as { requestRender: () => void }).requestRender();
+    (component as unknown as { requestRender: () => void }).requestRender();
+    expect(rafQueue.length).toBe(1);
+
+    for (const callback of [...rafQueue]) {
+      callback(performance.now());
+    }
+
+    expect(detectChangesSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('drag loop marks render as needed and does not call detectChanges synchronously', () => {
+    const rafQueue: FrameRequestCallback[] = [];
+    const detectChangesSpy = vi.spyOn(
+      (component as unknown as { changeDetectorRef: { detectChanges: () => void } })
+        .changeDetectorRef,
+      'detectChanges',
+    );
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+      (callback: FrameRequestCallback) => {
+        rafQueue.push(callback);
+        return rafQueue.length;
+      },
+    );
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+    if (!rootFolderSourceId) {
+      return;
+    }
+
+    const stripId = stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId,
+        trackIndex: 0,
+      },
+      {
+        sourceName: 'Loop Probe Strip',
+        kind: 'generated',
+        startTick: 0,
+        durationTicks: 20,
+      },
+    );
+    expect(stripId).toBeTruthy();
+    fixture.detectChanges();
+
+    const stripItem = component
+      .timelineItems()
+      .find((item) => item.id === stripId && item.type === 'strip');
+    expect(stripItem).toBeTruthy();
+    if (!stripItem || stripItem.type !== 'strip') {
+      return;
+    }
+
+    component.onItemMouseDown(
+      new MouseEvent('mousedown', { clientX: 240, clientY: 220, button: 0 }),
+      stripItem,
+    );
+
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 260, clientY: 220 }));
+    expect(detectChangesSpy).toHaveBeenCalledTimes(0);
+    expect(rafQueue.length).toBeGreaterThan(0);
+
+    const firstCallbacks = [...rafQueue];
+    rafQueue.length = 0;
+    for (const callback of firstCallbacks) {
+      callback(performance.now());
+    }
+
+    window.dispatchEvent(new MouseEvent('mouseup', { clientX: 240, clientY: 220 }));
+
+    const secondCallbacks = [...rafQueue];
+    rafQueue.length = 0;
+    for (const callback of secondCallbacks) {
+      callback(performance.now());
+    }
+
+    expect(detectChangesSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(detectChangesSpy.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });

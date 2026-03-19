@@ -10,9 +10,9 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
 import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
-import { AnienFolderComponent } from './anien-folder.component';
-import { AnienStripComponent, TimelineItemResizeStart } from './anien-strip.component';
 
 interface SnapGuideState {
   tick: number | null;
@@ -130,21 +130,90 @@ interface ItemDragState {
 
         @for (item of timelineItems(); track item.id) {
           @if (item.type === 'strip') {
-            <app-anien-strip
-              [item]="item"
-              [clipPath]="itemClipPath(item)"
-              (itemMouseDown)="onItemMouseDown($event, item)"
-              (itemKeydown)="onItemKeydown($event, item.id)"
-              (resizeStart)="onItemResizeStart($event, item)"
-            ></app-anien-strip>
+            <div
+              class="strip"
+              tabindex="0"
+              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
+              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ' - 8px)'"
+              [style.top]="
+                'calc(' +
+                item.absoluteStartRow +
+                ' * var(--timeline-track-height) + var(--timeline-strip-offset))'
+              "
+              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
+              [style.clip-path]="itemClipPath(item)"
+              [class.selected]="item.isSelected"
+              (mousedown)="onItemMouseDown($event, item)"
+              (keydown.enter)="onItemKeydown($event, item.id)"
+              (keydown.space)="onItemKeydown($event, item.id)"
+            >
+              <div
+                class="resize-handle top"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
+              ></div>
+              <div
+                class="resize-handle left"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
+              ></div>
+              {{ item.sourceName }}
+              <div
+                class="resize-handle right"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
+              ></div>
+              <div
+                class="resize-handle bottom"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
+              ></div>
+            </div>
           } @else {
-            <app-anien-folder
-              [item]="item"
-              [clipPath]="itemClipPath(item)"
-              (itemMouseDown)="onItemMouseDown($event, item)"
-              (itemKeydown)="onItemKeydown($event, item.id)"
-              (resizeStart)="onItemResizeStart($event, item)"
-            ></app-anien-folder>
+            <div
+              class="folder"
+              tabindex="0"
+              [style.width]="'calc(var(--timeline-tick-size) * ' + item.durationTicks + ')'"
+              [style.height]="'calc(var(--timeline-track-height) * ' + item.rowSpan + ')'"
+              [style.top]="
+                'calc(' +
+                item.absoluteStartRow +
+                ' * var(--timeline-track-height) + var(--timeline-folder-offset))'
+              "
+              [style.left]="'calc(var(--timeline-tick-size) * ' + item.absoluteStartTick + ')'"
+              [style.clip-path]="itemClipPath(item)"
+              [class.selected]="item.isSelected"
+              (mousedown)="onItemMouseDown($event, item)"
+              (keydown.enter)="onItemKeydown($event, item.id)"
+              (keydown.space)="onItemKeydown($event, item.id)"
+            >
+              <div
+                class="resize-handle top"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'top')"
+              ></div>
+              <div
+                class="resize-handle left"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'left')"
+              ></div>
+              <div class="folder-header" [class.expanded]="item.isExpanded">
+                <div type="button">
+                  <ng-icon name="heroFolderMicro" />
+                </div>
+                <div>{{ item.name }}</div>
+                <button>
+                  <ng-icon name="heroChevronUpDownMicro" [style.rotate]="'90deg'" />
+                </button>
+              </div>
+              <div
+                class="folder-content-holder"
+                [style.display]="item.isExpanded ? 'block' : 'none'"
+                [style.height]="'calc(' + item.bodyTrackCount + ' * var(--timeline-track-height))'"
+              ></div>
+              <div
+                class="resize-handle right"
+                (mousedown)="onResizeHandleMouseDown($event, item, 'right')"
+              ></div>
+              <div
+                class="resize-handle bottom"
+                (mousedown)="onVerticalResizeMouseDown($event, item, 'bottom')"
+              ></div>
+            </div>
           }
         } @empty {
           <div class="empty-state">No timeline items yet.</div>
@@ -410,12 +479,130 @@ interface ItemDragState {
         );
       }
 
+      .timeline-main .strip {
+        z-index: 20000;
+        background-color: #024b71;
+        color: #cbe6ff;
+        align-content: center;
+        box-sizing: border-box;
+        padding: 0 var(--timeline-strip-padding-x);
+        border-radius: 5px;
+        position: absolute;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .timeline-main .strip .resize-handle,
+      .timeline-main .folder .resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        cursor: col-resize;
+        z-index: 20001;
+      }
+
+      .timeline-main .strip .resize-handle.left,
+      .timeline-main .folder .resize-handle.left {
+        left: 0;
+      }
+
+      .timeline-main .strip .resize-handle.right,
+      .timeline-main .folder .resize-handle.right {
+        right: 0;
+      }
+
+      .timeline-main .strip .resize-handle.top,
+      .timeline-main .strip .resize-handle.bottom,
+      .timeline-main .folder .resize-handle.top,
+      .timeline-main .folder .resize-handle.bottom {
+        left: 0;
+        right: 0;
+        width: auto;
+        height: 10px;
+        cursor: row-resize;
+      }
+
+      .timeline-main .strip .resize-handle.top,
+      .timeline-main .folder .resize-handle.top {
+        top: 0;
+        bottom: auto;
+      }
+
+      .timeline-main .strip .resize-handle.bottom,
+      .timeline-main .folder .resize-handle.bottom {
+        top: auto;
+        bottom: 0;
+      }
+
+      .timeline-main .folder {
+        z-index: 10000;
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        cursor: pointer;
+      }
+
+      .timeline-main .folder .folder-header {
+        min-height: calc(var(--timeline-track-height) - 8px);
+        background-color: #437836;
+        color: #e0e3e8;
+        align-content: center;
+        padding: 0 var(--timeline-strip-padding-x);
+        border-radius: 10px 10px var(--timeline-folder-offset) var(--timeline-folder-offset);
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) 40px;
+        gap: 3px;
+      }
+
+      .timeline-main .folder .folder-header div:nth-child(2) {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .timeline-main .folder .folder-header.expanded {
+        border-radius: 10px 10px 0 0;
+      }
+
+      .timeline-main .folder .folder-header button {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: inherit;
+      }
+
+      .timeline-main .folder .folder-content-holder {
+        background-color: #2e6b2e;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #32562a,
+          #32562a var(--timeline-folder-content-stripe-height),
+          #264c14 var(--timeline-folder-content-stripe-height),
+          #264c14 var(--timeline-track-height)
+        );
+        color: white;
+        border-radius: 0 0 var(--timeline-folder-offset) var(--timeline-folder-offset);
+      }
+
       .timeline-main .empty-state {
         color: white;
         height: 100%;
         display: grid;
         justify-content: center;
         align-items: center;
+      }
+
+      .timeline-main .strip.selected,
+      .timeline-main .folder.selected .folder-header {
+        box-shadow: 0 0 0 2px #8dd7ff inset;
       }
 
       .timeline-actions {
@@ -539,7 +726,8 @@ interface ItemDragState {
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AnienStripComponent, AnienFolderComponent],
+  imports: [NgIcon],
+  viewProviders: [provideIcons({ heroFolderMicro, heroChevronUpDownMicro })],
 })
 export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
@@ -682,6 +870,46 @@ export class AnienTimelineComponent implements OnDestroy {
   private renderFrameId: number | null = null;
   private detachRenderId: number | null = null;
   private snapshotCopyResetTimeoutId: number | null = null;
+  private dragPendingEvent: MouseEvent | null = null;
+  private dragFlushFrameId: number | null = null;
+  private renderRequested = false;
+  private dragReferenceItems: (StripVM | FolderVM)[] | null = null;
+
+  private scheduleDragFlush(): void {
+    if (this.dragFlushFrameId !== null) {
+      return;
+    }
+
+    this.dragFlushFrameId = window.requestAnimationFrame(() => {
+      this.dragFlushFrameId = null;
+
+      const pendingEvent = this.dragPendingEvent;
+      this.dragPendingEvent = null;
+      if (!pendingEvent || !this.dragState) {
+        return;
+      }
+
+      this.handleDrag(pendingEvent);
+    });
+  }
+
+  private clearDragInteractionState(): void {
+    if (this.dragFlushFrameId !== null) {
+      window.cancelAnimationFrame(this.dragFlushFrameId);
+      this.dragFlushFrameId = null;
+    }
+
+    this.dragPendingEvent = null;
+    this.dragReferenceItems = null;
+  }
+
+  private getDragReferenceItems(): (StripVM | FolderVM)[] {
+    return this.dragReferenceItems ?? this.timelineItems();
+  }
+
+  private updateDragReferenceItems(): void {
+    this.dragReferenceItems = [...this.timelineItems()];
+  }
 
   public ngOnDestroy(): void {
     window.removeEventListener('mousemove', this.onWindowMouseMove);
@@ -694,6 +922,8 @@ export class AnienTimelineComponent implements OnDestroy {
       window.clearTimeout(this.snapshotCopyResetTimeoutId);
       this.snapshotCopyResetTimeoutId = null;
     }
+
+    this.clearDragInteractionState();
 
     this.snapGuideState.set(null);
   }
@@ -757,15 +987,7 @@ export class AnienTimelineComponent implements OnDestroy {
     this.startZoneLessDragLoop();
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
-  }
-
-  public onItemResizeStart(payload: TimelineItemResizeStart, item: StripVM | FolderVM): void {
-    if (payload.side === 'left' || payload.side === 'right') {
-      this.onResizeHandleMouseDown(payload.event, item, payload.side);
-      return;
-    }
-
-    this.onVerticalResizeMouseDown(payload.event, item, payload.side);
+    this.updateDragReferenceItems();
   }
 
   public onResizeHandleMouseDown(
@@ -800,6 +1022,7 @@ export class AnienTimelineComponent implements OnDestroy {
     this.startZoneLessDragLoop();
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
+    this.updateDragReferenceItems();
   }
 
   public onVerticalResizeMouseDown(
@@ -834,6 +1057,7 @@ export class AnienTimelineComponent implements OnDestroy {
     this.startZoneLessDragLoop();
     window.addEventListener('mousemove', this.onWindowMouseMove);
     window.addEventListener('mouseup', this.onWindowMouseUp);
+    this.updateDragReferenceItems();
   }
 
   public onTimelineMouseDown(event: MouseEvent): void {
@@ -903,7 +1127,8 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     if (this.dragState) {
-      this.handleDrag(event);
+      this.dragPendingEvent = event;
+      this.scheduleDragFlush();
       return;
     }
 
@@ -949,6 +1174,7 @@ export class AnienTimelineComponent implements OnDestroy {
       appliedDeltaRows: 0,
     };
 
+    this.updateDragReferenceItems();
     this.applyInitialMoveSnap();
     this.mouseDownState = null;
   }
@@ -1003,20 +1229,25 @@ export class AnienTimelineComponent implements OnDestroy {
       snappedStartRow !== this.dragState.initialStartRow;
 
     if (didSnapPositionChange) {
-      if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, {
-          startTick: snappedStartTick,
-          startRow: snappedStartRow,
-        });
-      } else {
-        this.stateService.updateFolder(this.dragState.itemId, {
-          startTick: snappedStartTick,
-          startRow: snappedStartRow,
-        });
+      const didUpdate =
+        this.dragState.itemType === 'strip'
+          ? this.stateService.updateStrip(this.dragState.itemId, {
+              startTick: snappedStartTick,
+              startRow: snappedStartRow,
+            })
+          : this.stateService.updateFolder(this.dragState.itemId, {
+              startTick: snappedStartTick,
+              startRow: snappedStartRow,
+            });
+
+      if (!didUpdate) {
+        this.requestRender();
+        return;
       }
 
       this.dragState.initialStartTick = snappedStartTick;
       this.dragState.initialStartRow = snappedStartRow;
+      this.updateDragReferenceItems();
     }
 
     if (guideTick === null && guideRow === null) {
@@ -1107,18 +1338,35 @@ export class AnienTimelineComponent implements OnDestroy {
       }
 
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, {
+        const didUpdate = this.stateService.updateStrip(this.dragState.itemId, {
           startTick: targetStartTick,
           startRow: targetStartRow,
         });
+        if (
+          !this.tryCommitDragDelta(didUpdate, {
+            startTick: targetStartTick,
+            startRow: targetStartRow,
+          })
+        ) {
+          return;
+        }
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, {
+        const didUpdate = this.stateService.updateFolder(this.dragState.itemId, {
           startTick: targetStartTick,
           startRow: targetStartRow,
         });
+        if (
+          !this.tryCommitDragDelta(didUpdate, {
+            startTick: targetStartTick,
+            startRow: targetStartRow,
+          })
+        ) {
+          return;
+        }
       }
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
       this.dragState.appliedDeltaRows = appliedDeltaRows;
+      this.updateDragReferenceItems();
       this.snapGuideState.set({ tick: nextSnapTick, row: nextSnapRow });
       this.requestRender();
       return;
@@ -1172,18 +1420,35 @@ export class AnienTimelineComponent implements OnDestroy {
       }
 
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, {
+        const didUpdate = this.stateService.updateStrip(this.dragState.itemId, {
           startTick: nextStartTick,
           durationTicks: nextDurationTicks,
         });
+        if (
+          !this.tryCommitDragDelta(didUpdate, {
+            startTick: nextStartTick,
+            durationTicks: nextDurationTicks,
+          })
+        ) {
+          return;
+        }
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, {
+        const didUpdate = this.stateService.updateFolder(this.dragState.itemId, {
           startTick: nextStartTick,
           durationTicks: nextDurationTicks,
         });
+        if (
+          !this.tryCommitDragDelta(didUpdate, {
+            startTick: nextStartTick,
+            durationTicks: nextDurationTicks,
+          })
+        ) {
+          return;
+        }
       }
 
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      this.updateDragReferenceItems();
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
       this.requestRender();
       return;
@@ -1235,11 +1500,22 @@ export class AnienTimelineComponent implements OnDestroy {
       }
 
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, { durationTicks: nextDurationTicks });
+        const didUpdate = this.stateService.updateStrip(this.dragState.itemId, {
+          durationTicks: nextDurationTicks,
+        });
+        if (!this.tryCommitDragDelta(didUpdate, { durationTicks: nextDurationTicks })) {
+          return;
+        }
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, { durationTicks: nextDurationTicks });
+        const didUpdate = this.stateService.updateFolder(this.dragState.itemId, {
+          durationTicks: nextDurationTicks,
+        });
+        if (!this.tryCommitDragDelta(didUpdate, { durationTicks: nextDurationTicks })) {
+          return;
+        }
       }
       this.dragState.appliedDeltaTicks = appliedDeltaTicks;
+      this.updateDragReferenceItems();
       this.snapGuideState.set({ tick: nextSnapTick, row: null });
       this.requestRender();
       return;
@@ -1287,11 +1563,22 @@ export class AnienTimelineComponent implements OnDestroy {
       }
 
       if (this.dragState.itemType === 'strip') {
-        this.stateService.updateStrip(this.dragState.itemId, { laneSpan: nextSpan });
+        const didUpdate = this.stateService.updateStrip(this.dragState.itemId, {
+          laneSpan: nextSpan,
+        });
+        if (!this.tryCommitDragDelta(didUpdate, { laneSpan: nextSpan })) {
+          return;
+        }
       } else {
-        this.stateService.updateFolder(this.dragState.itemId, { bodyTrackCount: nextSpan });
+        const didUpdate = this.stateService.updateFolder(this.dragState.itemId, {
+          bodyTrackCount: nextSpan,
+        });
+        if (!this.tryCommitDragDelta(didUpdate, { bodyTrackCount: nextSpan })) {
+          return;
+        }
       }
       this.dragState.appliedDeltaRows = appliedDeltaRows;
+      this.updateDragReferenceItems();
       this.snapGuideState.set({ tick: null, row: nextSnapRow });
       this.requestRender();
       return;
@@ -1345,17 +1632,34 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     if (this.dragState.itemType === 'strip') {
-      this.stateService.updateStrip(this.dragState.itemId, {
+      const didUpdate = this.stateService.updateStrip(this.dragState.itemId, {
         laneSpan: nextSpan,
         startRow: nextStartRow,
       });
+      if (
+        !this.tryCommitDragDelta(didUpdate, {
+          laneSpan: nextSpan,
+          startRow: nextStartRow,
+        })
+      ) {
+        return;
+      }
     } else {
-      this.stateService.updateFolder(this.dragState.itemId, {
+      const didUpdate = this.stateService.updateFolder(this.dragState.itemId, {
         bodyTrackCount: nextSpan,
         startRow: nextStartRow,
       });
+      if (
+        !this.tryCommitDragDelta(didUpdate, {
+          bodyTrackCount: nextSpan,
+          startRow: nextStartRow,
+        })
+      ) {
+        return;
+      }
     }
     this.dragState.appliedDeltaRows = appliedDeltaRows;
+    this.updateDragReferenceItems();
     this.snapGuideState.set({ tick: null, row: nextSnapRow });
     this.requestRender();
   }
@@ -1363,6 +1667,14 @@ export class AnienTimelineComponent implements OnDestroy {
   private onWindowMouseUp = () => {
     window.removeEventListener('mousemove', this.onWindowMouseMove);
     window.removeEventListener('mouseup', this.onWindowMouseUp);
+
+    if (this.dragState && this.dragPendingEvent) {
+      const pendingDragEvent = this.dragPendingEvent;
+      this.dragPendingEvent = null;
+      this.handleDrag(pendingDragEvent);
+    }
+
+    this.clearDragInteractionState();
     this.stopZoneLessDragLoop();
 
     if (this.zoomDragState) {
@@ -1383,6 +1695,7 @@ export class AnienTimelineComponent implements OnDestroy {
       }
 
       this.snapGuideState.set(null);
+      this.requestRender();
 
       return;
     }
@@ -1591,6 +1904,51 @@ export class AnienTimelineComponent implements OnDestroy {
     this.requestRender();
   }
 
+  private tryCommitDragDelta(
+    didUpdate: boolean,
+    expected: {
+      startTick?: number;
+      startRow?: number;
+      durationTicks?: number;
+      laneSpan?: number;
+      bodyTrackCount?: number;
+    },
+  ): boolean {
+    if (!didUpdate) {
+      this.requestRender();
+      return false;
+    }
+
+    const dragState = this.dragState;
+    if (!dragState) {
+      this.requestRender();
+      return false;
+    }
+
+    const item = this.timelineItems().find((candidate) => candidate.id === dragState.itemId);
+    if (!item) {
+      this.requestRender();
+      return false;
+    }
+
+    const hasMismatch =
+      (expected.startTick !== undefined && item.startTick !== expected.startTick) ||
+      (expected.startRow !== undefined && item.startRow !== expected.startRow) ||
+      (expected.durationTicks !== undefined && item.durationTicks !== expected.durationTicks) ||
+      (expected.laneSpan !== undefined &&
+        item.type === 'strip' &&
+        item.laneSpan !== expected.laneSpan) ||
+      (expected.bodyTrackCount !== undefined &&
+        item.type === 'folder' &&
+        item.bodyTrackCount !== expected.bodyTrackCount);
+
+    if (hasMismatch) {
+      this.requestRender();
+    }
+
+    return true;
+  }
+
   private resolveZoomAnchor(clientX: number): { anchorTick: number; viewportX: number } | null {
     const mainWrapper = this.mainWrapperRef?.nativeElement;
     if (!mainWrapper) {
@@ -1609,13 +1967,27 @@ export class AnienTimelineComponent implements OnDestroy {
   }
 
   private requestRender(): void {
+    this.renderRequested = true;
+    this.scheduleRenderFrame();
+  }
+
+  private scheduleRenderFrame(): void {
     if (this.renderFrameId !== null) {
       return;
     }
 
     this.renderFrameId = window.requestAnimationFrame(() => {
       this.renderFrameId = null;
+      if (!this.renderRequested) {
+        return;
+      }
+
+      this.renderRequested = false;
       this.changeDetectorRef.detectChanges();
+
+      if (this.renderRequested) {
+        this.scheduleRenderFrame();
+      }
     });
   }
 
@@ -1626,7 +1998,13 @@ export class AnienTimelineComponent implements OnDestroy {
 
     this.ngZone.runOutsideAngular(() => {
       const tick = () => {
-        this.changeDetectorRef.detectChanges();
+        if (!this.dragState && !this.zoomDragState) {
+          this.detachRenderId = null;
+          return;
+        }
+
+        this.renderRequested = true;
+        this.scheduleRenderFrame();
         this.detachRenderId = window.requestAnimationFrame(tick);
       };
       this.detachRenderId = window.requestAnimationFrame(tick);
@@ -1786,7 +2164,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
   private collectForbiddenBounds(excludedIds: Set<string>): TimelineBounds[] {
     const bounds: TimelineBounds[] = [];
-    for (const item of this.timelineItems()) {
+    for (const item of this.getDragReferenceItems()) {
       if (excludedIds.has(item.id)) {
         continue;
       }
@@ -1848,7 +2226,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
   private collectHorizontalSnapTicks(excludedIds: Set<string>): number[] {
     const candidates = new Set<number>([this.currentTick()]);
-    for (const item of this.timelineItems()) {
+    for (const item of this.getDragReferenceItems()) {
       if (excludedIds.has(item.id)) {
         continue;
       }
@@ -1944,7 +2322,7 @@ export class AnienTimelineComponent implements OnDestroy {
 
   private collectFolderVerticalSnapRows(excludedIds: Set<string>): number[] {
     const rows = new Set<number>();
-    for (const item of this.timelineItems()) {
+    for (const item of this.getDragReferenceItems()) {
       if (excludedIds.has(item.id) || item.type !== 'folder') {
         continue;
       }
