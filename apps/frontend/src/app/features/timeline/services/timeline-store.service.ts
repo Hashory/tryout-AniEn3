@@ -17,14 +17,6 @@ import {
 } from '../models/timeline.types';
 import { createDemoTimelineSnapshot, normalizeTimelineSnapshot } from './timeline-normalization';
 
-interface TimelineUpdateMessage {
-  type: 'timeline-update';
-  data: TimelineSnapshot | null;
-  senderId: string;
-  updateId: string;
-  sentAt: number;
-}
-
 export interface StripCreationInput {
   id?: string;
   sourceId?: string;
@@ -102,11 +94,8 @@ interface YWritableMap {
 export class YjsTimelineService implements OnDestroy {
   private readonly collab = inject(YjsDocumentService);
   private readonly localTransactionOrigin = { source: 'timeline-local' };
-  private readonly tabId = crypto.randomUUID();
-  private readonly MAX_SEEN_UPDATE_IDS = 256;
 
   private readonly doc: Y.Doc;
-  private readonly broadcastChannel: BroadcastChannel;
 
   private readonly yRoot: Y.Map<unknown>;
   private readonly yStripSources: YStripSourcesMap;
@@ -120,24 +109,18 @@ export class YjsTimelineService implements OnDestroy {
   private localMutationDepth = 0;
   private queuedSnapshotForPublish: TimelineSnapshot | null = null;
   private hasQueuedPublish = false;
-  private queuedPublishNeedsBroadcast = false;
   private publishFlushFrameId: number | null = null;
-  private broadcastFlushFrameId: number | null = null;
-  private queuedBroadcastMessage: TimelineUpdateMessage | null = null;
-  private readonly seenUpdateIdSet = new Set<string>();
-  private readonly seenUpdateIdOrder: string[] = [];
 
   private readonly handleSnapshotUpdate = () => {
     if (this.localMutationDepth > 0) {
       return;
     }
 
-    this.enqueuePublish(this.buildSnapshot(), { shouldBroadcast: false });
+    this.enqueuePublish(this.buildSnapshot());
   };
 
   constructor() {
     this.doc = this.collab.getDoc();
-    this.broadcastChannel = this.collab.getBroadcastChannel('anien-timeline-broadcast-channel');
 
     this.yRoot = this.doc.getMap('timelineRoot');
     this.yStripSources = this.doc.getMap('stripSources') as YStripSourcesMap;
@@ -159,27 +142,11 @@ export class YjsTimelineService implements OnDestroy {
 
     this.collab.onSynced(() => {
       this.ensureSourcePlacementSchema();
-      this.publishNow(this.buildSnapshot(), { shouldBroadcast: false });
+      this.publishNow(this.buildSnapshot());
     });
 
-    this.broadcastChannel.onmessage = (event: MessageEvent<TimelineUpdateMessage>) => {
-      const message = event.data;
-      if (message.type === 'timeline-update') {
-        if (message.senderId === this.tabId) {
-          return;
-        }
-
-        if (this.hasSeenUpdateId(message.updateId)) {
-          return;
-        }
-
-        this.markSeenUpdateId(message.updateId);
-        this.enqueuePublish(message.data ?? null, { shouldBroadcast: false });
-      }
-    };
-
     this.ensureSourcePlacementSchema();
-    this.publishNow(this.buildSnapshot(), { shouldBroadcast: false });
+    this.publishNow(this.buildSnapshot());
   }
 
   public ngOnDestroy(): void {
@@ -189,20 +156,12 @@ export class YjsTimelineService implements OnDestroy {
     this.yFolderChildren.unobserveDeep(this.handleSnapshotUpdate);
     this.yPlacements.unobserveDeep(this.handleSnapshotUpdate);
 
-    this.broadcastChannel.onmessage = null;
-    this.broadcastChannel.close();
-
     if (this.publishFlushFrameId !== null) {
       window.cancelAnimationFrame(this.publishFlushFrameId);
       this.publishFlushFrameId = null;
     }
 
-    if (this.broadcastFlushFrameId !== null) {
-      window.cancelAnimationFrame(this.broadcastFlushFrameId);
-      this.broadcastFlushFrameId = null;
-    }
-
-    this.queuedBroadcastMessage = null;
+    this.queuedSnapshotForPublish = null;
     this.hasQueuedPublish = false;
   }
 
@@ -224,7 +183,7 @@ export class YjsTimelineService implements OnDestroy {
       this.writeSnapshotToYjs(seededSnapshot);
     }, this.localTransactionOrigin);
 
-    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
+    this.publishNow(this.buildSnapshot());
   }
 
   public undo(): boolean {
@@ -234,7 +193,7 @@ export class YjsTimelineService implements OnDestroy {
 
     this.undoManager.stopCapturing();
     this.undoManager.undo();
-    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
+    this.publishNow(this.buildSnapshot());
     return true;
   }
 
@@ -662,7 +621,7 @@ export class YjsTimelineService implements OnDestroy {
     if (snapshot?.root.rootFolderSourceId) {
       const normalized = normalizeTimelineSnapshot(snapshot);
       this.writeSnapshotToYjs(normalized);
-      this.publishNow(normalized, { shouldBroadcast: true });
+      this.publishNow(normalized);
       return;
     }
 
@@ -672,7 +631,7 @@ export class YjsTimelineService implements OnDestroy {
       this.writeSnapshotToYjs(seededSnapshot);
     }, this.localTransactionOrigin);
 
-    this.publishNow(this.buildSnapshot(), { shouldBroadcast: true });
+    this.publishNow(this.buildSnapshot());
   }
 
   private mutateSnapshot(
@@ -693,26 +652,16 @@ export class YjsTimelineService implements OnDestroy {
       this.localMutationDepth -= 1;
     }
 
-    this.publishNow(nextSnapshot ?? this.buildSnapshot(), { shouldBroadcast: true });
+    this.publishNow(nextSnapshot ?? this.buildSnapshot());
   }
 
-  private publishNow(
-    snapshot: TimelineSnapshot | null,
-    options: { shouldBroadcast: boolean },
-  ): void {
+  private publishNow(snapshot: TimelineSnapshot | null): void {
     this.publishSnapshot(snapshot);
-    if (options.shouldBroadcast) {
-      this.enqueueBroadcast(snapshot);
-    }
   }
 
-  private enqueuePublish(
-    snapshot: TimelineSnapshot | null,
-    options: { shouldBroadcast: boolean },
-  ): void {
+  private enqueuePublish(snapshot: TimelineSnapshot | null): void {
     this.queuedSnapshotForPublish = snapshot;
     this.hasQueuedPublish = true;
-    this.queuedPublishNeedsBroadcast = this.queuedPublishNeedsBroadcast || options.shouldBroadcast;
 
     if (this.publishFlushFrameId !== null) {
       return;
@@ -730,65 +679,9 @@ export class YjsTimelineService implements OnDestroy {
     }
 
     const snapshot = this.queuedSnapshotForPublish;
-    const shouldBroadcast = this.queuedPublishNeedsBroadcast;
     this.hasQueuedPublish = false;
     this.queuedSnapshotForPublish = null;
-    this.queuedPublishNeedsBroadcast = false;
-
     this.publishSnapshot(snapshot);
-    if (shouldBroadcast) {
-      this.enqueueBroadcast(snapshot);
-    }
-  }
-
-  private enqueueBroadcast(snapshot: TimelineSnapshot | null): void {
-    const message: TimelineUpdateMessage = {
-      type: 'timeline-update',
-      data: snapshot,
-      senderId: this.tabId,
-      updateId: crypto.randomUUID(),
-      sentAt: Date.now(),
-    };
-
-    this.queuedBroadcastMessage = message;
-    this.markSeenUpdateId(message.updateId);
-
-    if (this.broadcastFlushFrameId !== null) {
-      return;
-    }
-
-    this.broadcastFlushFrameId = window.requestAnimationFrame(() => {
-      this.broadcastFlushFrameId = null;
-      const pendingMessage = this.queuedBroadcastMessage;
-      this.queuedBroadcastMessage = null;
-      if (!pendingMessage) {
-        return;
-      }
-
-      this.broadcastChannel.postMessage(pendingMessage);
-    });
-  }
-
-  private hasSeenUpdateId(updateId: string): boolean {
-    return this.seenUpdateIdSet.has(updateId);
-  }
-
-  private markSeenUpdateId(updateId: string): void {
-    if (this.seenUpdateIdSet.has(updateId)) {
-      return;
-    }
-
-    this.seenUpdateIdSet.add(updateId);
-    this.seenUpdateIdOrder.push(updateId);
-    if (this.seenUpdateIdOrder.length <= this.MAX_SEEN_UPDATE_IDS) {
-      return;
-    }
-
-    const evictedId = this.seenUpdateIdOrder.shift();
-    if (!evictedId) {
-      return;
-    }
-    this.seenUpdateIdSet.delete(evictedId);
   }
 
   private buildSnapshot(): TimelineSnapshot | null {

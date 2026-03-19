@@ -3,37 +3,9 @@ import * as Y from 'yjs';
 import { vi } from 'vitest';
 import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
 import { YjsTimelineService } from './timeline-store.service';
-import { TimelineSnapshot } from '../models/timeline.types';
-
-interface TimelineUpdateMessage {
-  type: 'timeline-update';
-  data: TimelineSnapshot | null;
-  senderId: string;
-  updateId: string;
-  sentAt: number;
-}
-
-class FakeBroadcastChannel {
-  public onmessage: ((event: MessageEvent<TimelineUpdateMessage>) => void) | null = null;
-
-  public postedMessages: TimelineUpdateMessage[] = [];
-
-  public postMessage(message: TimelineUpdateMessage): void {
-    this.postedMessages.push(message);
-  }
-
-  public emit(message: TimelineUpdateMessage): void {
-    this.onmessage?.({ data: message } as MessageEvent<TimelineUpdateMessage>);
-  }
-
-  public close(): void {
-    this.onmessage = null;
-  }
-}
 
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();
-  private readonly channels = new Map<string, FakeBroadcastChannel>();
 
   public getDoc(): Y.Doc {
     return this.doc;
@@ -42,30 +14,9 @@ class FakeYjsDocumentService {
   public onSynced(callback: () => void): void {
     callback();
   }
-
-  public getBroadcastChannel(name: string): BroadcastChannel {
-    let channel = this.channels.get(name);
-    if (!channel) {
-      channel = new FakeBroadcastChannel();
-      this.channels.set(name, channel);
-    }
-
-    return channel as unknown as BroadcastChannel;
-  }
-
-  public getFakeChannel(name: string): FakeBroadcastChannel {
-    const channel = this.channels.get(name);
-    if (!channel) {
-      throw new Error(`Missing channel: ${name}`);
-    }
-
-    return channel;
-  }
 }
 
 describe('YjsTimelineService', () => {
-  const timelineChannelName = 'anien-timeline-broadcast-channel';
-
   let service: YjsTimelineService;
   let fakeCollab: FakeYjsDocumentService;
   let rafQueue: FrameRequestCallback[];
@@ -103,7 +54,7 @@ describe('YjsTimelineService', () => {
     vi.restoreAllMocks();
   });
 
-  it('coalesces repeated remote broadcasts into a single publish frame', () => {
+  it('coalesces repeated Yjs observer updates into a single publish frame', () => {
     let subscriberNotifications = 0;
     service.subscribeTimeline(() => {
       subscriberNotifications += 1;
@@ -111,31 +62,19 @@ describe('YjsTimelineService', () => {
     flushRafQueue();
 
     subscriberNotifications = 0;
-    const channel = fakeCollab.getFakeChannel(timelineChannelName);
-    const snapshot = service.getSnapshot();
+    const yRoot = fakeCollab.getDoc().getMap('timelineRoot');
 
-    channel.emit({
-      type: 'timeline-update',
-      data: snapshot,
-      senderId: 'remote-tab',
-      updateId: 'remote-1',
-      sentAt: Date.now(),
-    });
-    channel.emit({
-      type: 'timeline-update',
-      data: snapshot,
-      senderId: 'remote-tab',
-      updateId: 'remote-2',
-      sentAt: Date.now(),
-    });
+    yRoot.set('timeScale', 10);
+    yRoot.set('timeScale', 11);
 
     expect(rafQueue.length).toBeGreaterThan(0);
+    expect(subscriberNotifications).toBe(0);
     flushRafQueue();
 
     expect(subscriberNotifications).toBe(1);
   });
 
-  it('ignores duplicate broadcast updates with the same updateId', () => {
+  it('publishes mutateSnapshot local changes immediately without RAF queueing', () => {
     let subscriberNotifications = 0;
     service.subscribeTimeline(() => {
       subscriberNotifications += 1;
@@ -144,21 +83,20 @@ describe('YjsTimelineService', () => {
     flushRafQueue();
     subscriberNotifications = 0;
 
-    const channel = fakeCollab.getFakeChannel(timelineChannelName);
-    const snapshot = service.getSnapshot();
-    const updateId = 'dupe-update-id';
-    const incomingMessage: TimelineUpdateMessage = {
-      type: 'timeline-update',
-      data: snapshot,
-      senderId: 'another-tab',
-      updateId,
-      sentAt: Date.now(),
-    };
+    const rootFolderSourceId = service.getSnapshot()?.root.rootFolderSourceId;
+    expect(rootFolderSourceId).toBeTruthy();
 
-    channel.emit(incomingMessage);
-    channel.emit(incomingMessage);
-    flushRafQueue();
+    service.addStripToTrack(
+      0,
+      {
+        sourceName: 'Immediate local update',
+        startTick: 0,
+        durationTicks: 10,
+      },
+      { parentFolderId: rootFolderSourceId ?? undefined },
+    );
 
     expect(subscriberNotifications).toBe(1);
+    expect(rafQueue.length).toBe(0);
   });
 });

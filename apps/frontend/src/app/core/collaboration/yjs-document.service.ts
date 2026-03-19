@@ -8,7 +8,6 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 export class YjsDocumentService {
   private readonly doc: Y.Doc;
   private readonly provider: HocuspocusProvider;
-  private readonly channels = new Map<string, BroadcastChannel>();
 
   constructor() {
     this.doc = new Y.Doc();
@@ -29,15 +28,5 @@ export class YjsDocumentService {
 
   public onSynced(callback: () => void): void {
     this.provider.on('synced', callback);
-  }
-
-  public getBroadcastChannel(name: string): BroadcastChannel {
-    const existing = this.channels.get(name);
-    if (existing) {
-      return existing;
-    }
-    const channel = new BroadcastChannel(name);
-    this.channels.set(name, channel);
-    return channel;
   }
 }

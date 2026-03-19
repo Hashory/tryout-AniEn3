@@ -5,21 +5,8 @@ import { AnienTimelineComponent } from './anien-timeline.component';
 import { TimelineStateService } from '../../services/timeline-state.service';
 import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
 
-class FakeBroadcastChannel {
-  public onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
-
-  public postMessage(): void {
-    // No-op for unit tests.
-  }
-
-  public close(): void {
-    this.onmessage = null;
-  }
-}
-
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();
-  private readonly channels = new Map<string, FakeBroadcastChannel>();
 
   public getDoc(): Y.Doc {
     return this.doc;
@@ -31,17 +18,6 @@ class FakeYjsDocumentService {
 
   public onSynced(callback: () => void): void {
     callback();
-  }
-
-  public getBroadcastChannel(name: string): BroadcastChannel {
-    const existing = this.channels.get(name);
-    if (existing) {
-      return existing as unknown as BroadcastChannel;
-    }
-
-    const channel = new FakeBroadcastChannel();
-    this.channels.set(name, channel);
-    return channel as unknown as BroadcastChannel;
   }
 }
 
