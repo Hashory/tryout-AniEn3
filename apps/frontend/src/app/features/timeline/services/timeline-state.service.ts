@@ -48,6 +48,7 @@ export interface FolderVM {
   type: 'folder';
   sourceId: string;
   name: string;
+  scheduleBrand?: ScheduleStripBrand | null;
   bodyTrackCount: number;
   durationTicks: number;
   startTick: number;
@@ -84,6 +85,7 @@ export class TimelineStateService {
   private readonly _currentTick = signal<number>(0);
   private readonly _selectedItemIds = signal<Set<string>>(new Set<string>());
   private readonly _zoomLevel = signal<number>(1);
+  private readonly _folderBrandOverrides = signal<Map<string, ScheduleStripBrand>>(new Map());
 
   public readonly currentTick = this._currentTick.asReadonly();
   public readonly selectedItemIds = this._selectedItemIds.asReadonly();
@@ -130,6 +132,7 @@ export class TimelineStateService {
     }
 
     const selectedIds = this._selectedItemIds();
+    const folderBrandOverrides = this._folderBrandOverrides();
     const items: TimelineItemVM[] = [];
 
     const visitFolder = (
@@ -190,6 +193,9 @@ export class TimelineStateService {
           type: 'folder',
           sourceId: childFolderSource.id,
           name: childFolderSource.name,
+          scheduleBrand:
+            folderBrandOverrides.get(placement.id) ??
+            this.resolveScheduleFolderBrand(childFolderSource.name),
           bodyTrackCount: childFolderSource.bodyTrackCount,
           durationTicks: placement.durationTicks,
           startTick: placement.startTick,
@@ -250,6 +256,7 @@ export class TimelineStateService {
     const unsubscribe = this.yjsService.subscribeTimeline((snapshot) => {
       this.model.set(snapshot);
       this.reconcileSelection(snapshot);
+      this.reconcileFolderBrandOverrides(snapshot);
     });
 
     this.destroyRef.onDestroy(unsubscribe);
@@ -277,6 +284,7 @@ export class TimelineStateService {
     this.yjsService.resetToDemoTimeline();
     this._currentTick.set(0);
     this._selectedItemIds.set(new Set());
+    this._folderBrandOverrides.set(new Map());
   }
 
   public undo(): boolean {
@@ -450,6 +458,77 @@ export class TimelineStateService {
     return createdFolderId;
   }
 
+  public convertSheduleStripToFolder(stripPlacementId: string): string | null {
+    const stripItem = this.yjsService.getItemById(stripPlacementId);
+    if (!stripItem || stripItem.type !== 'strip') {
+      return null;
+    }
+
+    if (stripItem.sourceKind !== 'solid') {
+      return null;
+    }
+
+    const sourceBrand = this.resolveScheduleStripBrand(stripItem.sourceName, stripItem.sourceKind);
+
+    const itemLocation = this.yjsService.getItemLocation(stripPlacementId);
+    const folderName = this.stripSheduleToken(stripItem.sourceName);
+    const createdFolderId = this.addFolder(
+      {
+        parentFolderId: stripItem.parentFolderSourceId ?? undefined,
+        trackIndex: stripItem.startRow,
+        position: itemLocation?.entryIndex,
+      },
+      {
+        name: folderName,
+        startTick: stripItem.startTick,
+        durationTicks: stripItem.durationTicks,
+        bodyTrackCount: 4,
+      },
+    );
+
+    if (!createdFolderId) {
+      return null;
+    }
+
+    const createdFolder = this.yjsService.getItemById(createdFolderId);
+    if (!createdFolder || createdFolder.type !== 'folder') {
+      return null;
+    }
+
+    if (sourceBrand) {
+      this.setFolderBrandOverride(createdFolderId, sourceBrand);
+    }
+
+    const columnDurations = this.resolveThreeColumnDurations(stripItem.durationTicks);
+    const columnStartTicks = [
+      0,
+      columnDurations[0],
+      columnDurations[0] + columnDurations[1],
+    ] as const;
+
+    for (let rowIndex = 0; rowIndex < 2; rowIndex += 1) {
+      const trackIndex = rowIndex * 2;
+      for (let columnIndex = 0; columnIndex < 3; columnIndex += 1) {
+        this.addStrip(
+          {
+            parentFolderId: createdFolder.sourceId,
+            trackIndex,
+          },
+          {
+            sourceName: `Strip ${rowIndex * 3 + columnIndex + 1}`,
+            kind: 'generated',
+            startTick: columnStartTicks[columnIndex],
+            durationTicks: columnDurations[columnIndex],
+            laneSpan: 2,
+          },
+        );
+      }
+    }
+
+    this.deleteItem(stripPlacementId);
+    this.selectItem(createdFolderId);
+    return createdFolderId;
+  }
   public updateStrip(itemId: string, updates: StripUpdateInput): boolean {
     return this.yjsService.updateStrip(itemId, updates);
   }
@@ -604,6 +683,38 @@ export class TimelineStateService {
     }
   }
 
+  private reconcileFolderBrandOverrides(snapshot: TimelineSnapshot | null): void {
+    if (!snapshot) {
+      this._folderBrandOverrides.set(new Map());
+      return;
+    }
+
+    const currentOverrides = this._folderBrandOverrides();
+    if (currentOverrides.size === 0) {
+      return;
+    }
+
+    const nextOverrides = new Map<string, ScheduleStripBrand>();
+    for (const [folderId, brand] of currentOverrides.entries()) {
+      const item = snapshot.placements[folderId];
+      if (item?.type === 'folder-placement') {
+        nextOverrides.set(folderId, brand);
+      }
+    }
+
+    if (nextOverrides.size !== currentOverrides.size) {
+      this._folderBrandOverrides.set(nextOverrides);
+    }
+  }
+
+  private setFolderBrandOverride(folderPlacementId: string, brand: ScheduleStripBrand): void {
+    this._folderBrandOverrides.update((current) => {
+      const next = new Map(current);
+      next.set(folderPlacementId, brand);
+      return next;
+    });
+  }
+
   private resolveInsertionContext(): {
     parentFolderId?: string;
     trackIndex: number;
@@ -668,6 +779,20 @@ export class TimelineStateService {
     };
   }
 
+  private stripSheduleToken(sourceName: string): string {
+    const normalizedName = sourceName.replace(/shedule/gi, '').trim();
+    return normalizedName || 'Folder';
+  }
+
+  private resolveThreeColumnDurations(totalDurationTicks: number): [number, number, number] {
+    if (totalDurationTicks < 3) {
+      return [1, 1, 1];
+    }
+
+    const baseDuration = Math.floor(totalDurationTicks / 3);
+    return [baseDuration, baseDuration, totalDurationTicks - baseDuration * 2];
+  }
+
   private getPrimarySelection(): string | null {
     const iterator = this._selectedItemIds().values();
     const first = iterator.next();
@@ -690,6 +815,14 @@ export class TimelineStateService {
       return null;
     }
 
+    return this.resolveScheduleBrandByName(sourceName) ?? 'ae';
+  }
+
+  private resolveScheduleFolderBrand(sourceName: string): ScheduleStripBrand | null {
+    return this.resolveScheduleBrandByName(sourceName);
+  }
+
+  private resolveScheduleBrandByName(sourceName: string): ScheduleStripBrand | null {
     const normalizedName = sourceName.toLowerCase();
     if (normalizedName.includes('photoshop')) {
       return 'photoshop';
@@ -715,7 +848,7 @@ export class TimelineStateService {
       return 'ae';
     }
 
-    return 'ae';
+    return null;
   }
 
   private clampZoomLevel(level: number): number {

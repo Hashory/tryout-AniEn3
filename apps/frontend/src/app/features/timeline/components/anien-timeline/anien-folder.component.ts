@@ -22,6 +22,10 @@ import type { TimelineItemResizeStart } from './anien-strip.component';
       "
       [style.left]="'calc(var(--timeline-tick-size) * ' + item().absoluteStartTick + ')'"
       [style.clip-path]="clipPath()"
+      [class.brand-ae]="item().scheduleBrand === 'ae'"
+      [class.brand-photoshop]="item().scheduleBrand === 'photoshop'"
+      [class.brand-maya]="item().scheduleBrand === 'maya'"
+      [class.brand-clipstudio]="item().scheduleBrand === 'clipstudio'"
       [class.selected]="item().isSelected"
       [class.ui-hovered]="isHovered()"
       [class.ui-focused]="isFocused()"
@@ -122,6 +126,71 @@ import type { TimelineItemResizeStart } from './anien-strip.component';
         );
         color: white;
         border-radius: 0 0 var(--timeline-folder-offset) var(--timeline-folder-offset);
+      }
+
+      .folder.brand-ae .folder-header {
+        background-color: #2b347d;
+        color: #e8ebff;
+      }
+
+      .folder.brand-ae .folder-content-holder {
+        background-color: #1f255d;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #252d70,
+          #252d70 var(--timeline-folder-content-stripe-height),
+          #1b2050 var(--timeline-folder-content-stripe-height),
+          #1b2050 var(--timeline-track-height)
+        );
+      }
+
+      .folder.brand-photoshop .folder-header {
+        background-color: #032b52;
+        color: #d4efff;
+      }
+
+      .folder.brand-photoshop .folder-content-holder {
+        background-color: #042645;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #063663,
+          #063663 var(--timeline-folder-content-stripe-height),
+          #04233f var(--timeline-folder-content-stripe-height),
+          #04233f var(--timeline-track-height)
+        );
+      }
+
+      .folder.brand-maya .folder-header {
+        background-color: #1c4744;
+        color: #d6f8f0;
+      }
+
+      .folder.brand-maya .folder-content-holder {
+        background-color: #1a3d3a;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #24514d,
+          #24514d var(--timeline-folder-content-stripe-height),
+          #173531 var(--timeline-folder-content-stripe-height),
+          #173531 var(--timeline-track-height)
+        );
+      }
+
+      .folder.brand-clipstudio .folder-header {
+        background-color: #bfc0c4;
+        color: #2f2f31;
+      }
+
+      .folder.brand-clipstudio .folder-content-holder {
+        background-color: #a8aab2;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          #b5b7be,
+          #b5b7be var(--timeline-folder-content-stripe-height),
+          #9da0a9 var(--timeline-folder-content-stripe-height),
+          #9da0a9 var(--timeline-track-height)
+        );
+        color: #232326;
       }
 
       .folder .resize-handle {

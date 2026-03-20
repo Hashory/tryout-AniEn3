@@ -10,6 +10,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
 import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
 import { AnienFolderComponent } from './anien-folder.component';
 import { AnienStripComponent } from './anien-strip.component';
@@ -36,6 +37,11 @@ interface TimelineRect {
 interface DropProbePoint {
   absoluteTick: number;
   absoluteRow: number;
+}
+
+interface ExternalDropStripInput {
+  sourceName: string;
+  durationTicks: number;
 }
 
 interface ItemDragState {
@@ -88,71 +94,78 @@ interface ItemDragState {
       </div>
     </div>
 
-    <div
-      class="timeline-sidebar"
-      tabindex="0"
-      (mousedown)="onTimelineMouseDown($event)"
-      (click)="onBackgroundClick($event)"
-      (keydown.enter)="onBackgroundKeydown($event)"
-      (keydown.space)="onBackgroundKeydown($event)"
-    ></div>
-
-    <div class="timeline-main-wrapper" #mainWrapper (scroll)="onMainScroll($event)">
+    @if (isTimelineLoading()) {
+      <div class="timeline-loading-state" role="status" aria-live="polite">Loading Data...</div>
+    } @else {
       <div
-        class="timeline-main"
-        [style.width]="timelineWidthStyle()"
-        [style.height]="timelineHeightStyle()"
+        class="timeline-sidebar"
         tabindex="0"
         (mousedown)="onTimelineMouseDown($event)"
         (click)="onBackgroundClick($event)"
         (keydown.enter)="onBackgroundKeydown($event)"
         (keydown.space)="onBackgroundKeydown($event)"
-      >
+      ></div>
+
+      <div class="timeline-main-wrapper" #mainWrapper (scroll)="onMainScroll($event)">
         <div
-          class="playhead-line"
-          [style.left]="'calc(var(--timeline-tick-size) * ' + currentTick() + ')'"
-        ></div>
+          class="timeline-main"
+          [style.width]="timelineWidthStyle()"
+          [style.height]="timelineHeightStyle()"
+          tabindex="0"
+          (mousedown)="onTimelineMouseDown($event)"
+          (dragover)="onTimelineDragOver($event)"
+          (drop)="onTimelineDrop($event)"
+          (click)="onBackgroundClick($event)"
+          (keydown.enter)="onBackgroundKeydown($event)"
+          (keydown.space)="onBackgroundKeydown($event)"
+        >
+          <div
+            class="playhead-line"
+            [style.left]="'calc(var(--timeline-tick-size) * ' + currentTick() + ')'"
+          ></div>
 
-        @if (snapGuideState(); as snapGuide) {
-          @if (snapGuide.tick !== null) {
-            <div
-              class="snap-guide-vertical"
-              [style.left]="'calc(var(--timeline-tick-size) * ' + snapGuide.tick + ')'"
-            ></div>
+          @if (snapGuideState(); as snapGuide) {
+            @if (snapGuide.tick !== null) {
+              <div
+                class="snap-guide-vertical"
+                [style.left]="'calc(var(--timeline-tick-size) * ' + snapGuide.tick + ')'"
+              ></div>
+            }
+            @if (snapGuide.row !== null) {
+              <div
+                class="snap-guide-horizontal"
+                [style.top]="'calc(var(--timeline-track-height) * ' + snapGuide.row + ')'"
+              ></div>
+            }
           }
-          @if (snapGuide.row !== null) {
-            <div
-              class="snap-guide-horizontal"
-              [style.top]="'calc(var(--timeline-track-height) * ' + snapGuide.row + ')'"
-            ></div>
-          }
-        }
 
-        @for (item of timelineItems(); track item.id) {
-          @if (item.type === 'strip') {
-            <app-anien-strip
-              [item]="item"
-              [clipPath]="itemClipPath(item)"
-              [sheduleStrip]="item.sourceKind === 'solid'"
-              [scheduleBrand]="item.scheduleBrand ?? 'ae'"
-              (itemMouseDown)="onItemMouseDown($event, item)"
-              (itemKeydown)="onItemKeydown($event, item.id)"
-              (resizeStart)="onItemResizeStart($event, item)"
-            />
-          } @else {
-            <app-anien-folder
-              [item]="item"
-              [clipPath]="itemClipPath(item)"
-              (itemMouseDown)="onItemMouseDown($event, item)"
-              (itemKeydown)="onItemKeydown($event, item.id)"
-              (resizeStart)="onItemResizeStart($event, item)"
-            />
+          @for (item of timelineItems(); track item.id) {
+            @if (item.type === 'strip') {
+              <app-anien-strip
+                [item]="item"
+                [clipPath]="itemClipPath(item)"
+                [sheduleStrip]="item.sourceKind === 'solid'"
+                [scheduleBrand]="item.scheduleBrand ?? 'ae'"
+                (itemMouseDown)="onItemMouseDown($event, item)"
+                (itemKeydown)="onItemKeydown($event, item.id)"
+                (resizeStart)="onItemResizeStart($event, item)"
+                (externalDrop)="onStripExternalDrop($event, item)"
+              />
+            } @else {
+              <app-anien-folder
+                [item]="item"
+                [clipPath]="itemClipPath(item)"
+                (itemMouseDown)="onItemMouseDown($event, item)"
+                (itemKeydown)="onItemKeydown($event, item.id)"
+                (resizeStart)="onItemResizeStart($event, item)"
+              />
+            }
+          } @empty {
+            <div class="empty-state">No timeline items yet.</div>
           }
-        } @empty {
-          <div class="empty-state">No timeline items yet.</div>
-        }
+        </div>
       </div>
-    </div>
+    }
 
     <div class="timeline-actions">
       <div class="actions-label">Initialize</div>
@@ -394,6 +407,17 @@ interface ItemDragState {
         grid-row: 2 / span 1;
       }
 
+      .timeline-loading-state {
+        grid-column: 1 / span 2;
+        grid-row: 2 / span 1;
+        display: grid;
+        place-items: center;
+        color: #cdd5e3;
+        font-size: 14px;
+        letter-spacing: 0.03em;
+        background: linear-gradient(180deg, rgba(15, 20, 24, 0.65) 0%, rgba(11, 15, 18, 0.9) 100%);
+      }
+
       .timeline-main-wrapper {
         grid-column: 2 / span 1;
         grid-row: 2 / span 1;
@@ -546,6 +570,7 @@ interface ItemDragState {
 })
 export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
+  private readonly collabService = inject(YjsDocumentService);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly ngZone = inject(NgZone);
 
@@ -563,6 +588,9 @@ export class AnienTimelineComponent implements OnDestroy {
   public readonly tickSizeCss = computed(() => this.tickSizePx() + 'px');
   public readonly debugStats = this.stateService.debugStats;
   public readonly debugSnapshotJson = this.stateService.debugSnapshotJson;
+  public readonly isTimelineLoading = computed(
+    () => !this.collabService.isConnected() || !this.collabService.isSynced(),
+  );
   public readonly rulerTicks = computed(() => {
     const extent = this.timelineExtentTicks();
     return Array.from({ length: Math.floor(extent / 30) + 1 }, (_, index) => index * 30);
@@ -891,8 +919,75 @@ export class AnienTimelineComponent implements OnDestroy {
     this.onVerticalResizeMouseDown(resizeStart.event, item, resizeStart.side);
   }
 
+  public onStripExternalDrop(event: DragEvent, item: StripVM): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (item.sourceKind !== 'solid') {
+      return;
+    }
+
+    this.stateService.convertSheduleStripToFolder(item.id);
+    this.requestRender();
+  }
+
   public onTimelineMouseDown(event: MouseEvent): void {
     this.tryStartZoomDrag(event);
+  }
+
+  public onTimelineDragOver(event: DragEvent): void {
+    if (!this.isTimelineBackgroundDrop(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  public onTimelineDrop(event: DragEvent): void {
+    if (!this.isTimelineBackgroundDrop(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rootFolderSourceId = this.rootFolderSourceId();
+    if (!rootFolderSourceId) {
+      return;
+    }
+
+    const dropProbe = this.resolveDropProbePoint(event.clientX, event.clientY);
+    if (!dropProbe) {
+      return;
+    }
+
+    const trackIndex = Math.max(0, Math.floor(dropProbe.absoluteRow));
+    if (trackIndex >= this.timelineRows()) {
+      return;
+    }
+
+    const stripInput = this.resolveExternalDropStripInput(event.dataTransfer);
+    if (!stripInput) {
+      return;
+    }
+
+    this.stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId,
+        trackIndex,
+      },
+      {
+        sourceName: stripInput.sourceName,
+        kind: 'generated',
+        startTick: Math.max(0, Math.floor(dropProbe.absoluteTick)),
+        durationTicks: stripInput.durationTicks,
+        laneSpan: 1,
+      },
+    );
+    this.requestRender();
   }
 
   public onHostWheel(event: WheelEvent): void {
@@ -1882,6 +1977,34 @@ export class AnienTimelineComponent implements OnDestroy {
     };
   }
 
+  private resolveExternalDropStripInput(
+    dataTransfer: DataTransfer | null,
+  ): ExternalDropStripInput | null {
+    if (!dataTransfer) {
+      return null;
+    }
+
+    const imageFile = Array.from(dataTransfer.files ?? []).find((file) =>
+      file.type.startsWith('image/'),
+    );
+    if (imageFile) {
+      return {
+        sourceName: imageFile.name || 'Dropped Image',
+        durationTicks: 300,
+      };
+    }
+
+    const droppedText = dataTransfer.getData('text/plain').trim();
+    if (droppedText.length > 0) {
+      return {
+        sourceName: 'Dropped Text',
+        durationTicks: 120,
+      };
+    }
+
+    return null;
+  }
+
   private finalizeMove(itemId: string, pointer?: { clientX: number; clientY: number }): void {
     const draggedItem = this.timelineItems().find((item) => item.id === itemId);
     if (!draggedItem) {
@@ -2292,5 +2415,13 @@ export class AnienTimelineComponent implements OnDestroy {
     }
 
     return target.matches('input, textarea, [contenteditable="true"], [contenteditable=""]');
+  }
+
+  private isTimelineBackgroundDrop(event: DragEvent): boolean {
+    if (!(event.target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return !event.target.closest('.strip, .folder');
   }
 }

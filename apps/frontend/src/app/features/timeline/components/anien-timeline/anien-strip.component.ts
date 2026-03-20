@@ -49,13 +49,19 @@ export interface TimelineItemResizeStart {
       (mouseleave)="onMouseLeave()"
       (focus)="isFocused.set(true)"
       (blur)="onBlur()"
+      (dragover)="onDragOver($event)"
+      (drop)="onDrop($event)"
     >
       <div class="resize-handle top" (mousedown)="onResizeStart($event, 'top')"></div>
       <div class="resize-handle left" (mousedown)="onResizeStart($event, 'left')"></div>
       @if (sheduleStrip()) {
         <!-- sheduleStrip -->
         <div class="shedule-strip-content">
-          <div class="shedule-icon" [class.clipstudio-mark]="scheduleBrand() === 'clipstudio'" [class.maya-mark]="scheduleBrand() === 'maya'">
+          <div
+            class="shedule-icon"
+            [class.clipstudio-mark]="scheduleBrand() === 'clipstudio'"
+            [class.maya-mark]="scheduleBrand() === 'maya'"
+          >
             @if (scheduleBrand() === 'clipstudio' || scheduleBrand() === 'maya') {
             } @else {
               <span>{{ scheduleBadgeLabel() }}</span>
@@ -199,12 +205,14 @@ export interface TimelineItemResizeStart {
       }
 
       .shedule-strip.brand-clipstudio .clipstudio-mark {
-        background: url('https://upload.wikimedia.org/wikipedia/commons/1/14/Clipstudiopaint_app_logo.png') center center / contain no-repeat;
+        background: url('https://upload.wikimedia.org/wikipedia/commons/1/14/Clipstudiopaint_app_logo.png')
+          center center / contain no-repeat;
       }
 
-        .shedule-strip.brand-maya .maya-mark {
-        background: url('https://images.seeklogo.com/logo-png/48/1/autodesk-maya-logo-png_seeklogo-482401.png') center center / contain no-repeat;
-        }
+      .shedule-strip.brand-maya .maya-mark {
+        background: url('https://images.seeklogo.com/logo-png/48/1/autodesk-maya-logo-png_seeklogo-482401.png')
+          center center / contain no-repeat;
+      }
 
       .shedule-text {
         display: flex;
@@ -286,6 +294,7 @@ export class AnienStripComponent {
   public readonly itemMouseDown = output<MouseEvent>();
   public readonly itemKeydown = output<KeyboardEvent>();
   public readonly resizeStart = output<TimelineItemResizeStart>();
+  public readonly externalDrop = output<DragEvent>();
 
   public readonly isHovered = signal(false);
   public readonly isFocused = signal(false);
@@ -320,5 +329,23 @@ export class AnienStripComponent {
   public onBlur(): void {
     this.isFocused.set(false);
     this.isPressed.set(false);
+  }
+
+  public onDragOver(event: DragEvent): void {
+    if (!this.sheduleStrip()) {
+      return;
+    }
+
+    event.preventDefault();
+  }
+
+  public onDrop(event: DragEvent): void {
+    if (!this.sheduleStrip()) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.externalDrop.emit(event);
   }
 }

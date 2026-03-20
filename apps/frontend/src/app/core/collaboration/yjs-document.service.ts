@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 
@@ -8,6 +8,11 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 export class YjsDocumentService {
   private readonly doc: Y.Doc;
   private readonly provider: HocuspocusProvider;
+  private readonly _isConnected = signal(false);
+  private readonly _isSynced = signal(false);
+
+  public readonly isConnected = this._isConnected.asReadonly();
+  public readonly isSynced = this._isSynced.asReadonly();
 
   constructor() {
     this.doc = new Y.Doc();
@@ -15,6 +20,18 @@ export class YjsDocumentService {
       url: `ws://${window.location.hostname}:14202`,
       name: 'dev-anien',
       document: this.doc,
+    });
+
+    this.provider.on('status', ({ status }: { status: string }) => {
+      const isConnected = status === 'connected';
+      this._isConnected.set(isConnected);
+      if (!isConnected) {
+        this._isSynced.set(false);
+      }
+    });
+
+    this.provider.on('synced', () => {
+      this._isSynced.set(true);
     });
   }
 

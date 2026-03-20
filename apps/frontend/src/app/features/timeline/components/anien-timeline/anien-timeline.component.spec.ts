@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import * as Y from 'yjs';
 import { vi } from 'vitest';
 import { AnienTimelineComponent } from './anien-timeline.component';
@@ -7,6 +8,10 @@ import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.
 
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();
+  private readonly _isConnected = signal(true);
+  private readonly _isSynced = signal(true);
+  public readonly isConnected = this._isConnected.asReadonly();
+  public readonly isSynced = this._isSynced.asReadonly();
 
   public getDoc(): Y.Doc {
     return this.doc;
@@ -19,12 +24,18 @@ class FakeYjsDocumentService {
   public onSynced(callback: () => void): void {
     callback();
   }
+
+  public setConnectionState(isConnected: boolean, isSynced: boolean): void {
+    this._isConnected.set(isConnected);
+    this._isSynced.set(isSynced);
+  }
 }
 
 describe('AnienTimelineComponent', () => {
   let component: AnienTimelineComponent;
   let fixture: ComponentFixture<AnienTimelineComponent>;
   let stateService: TimelineStateService;
+  let fakeCollab: FakeYjsDocumentService;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -35,6 +46,7 @@ describe('AnienTimelineComponent', () => {
     fixture = TestBed.createComponent(AnienTimelineComponent);
     component = fixture.componentInstance;
     stateService = TestBed.inject(TimelineStateService);
+    fakeCollab = TestBed.inject(YjsDocumentService) as unknown as FakeYjsDocumentService;
     fixture.detectChanges();
   });
 
@@ -42,8 +54,63 @@ describe('AnienTimelineComponent', () => {
     vi.restoreAllMocks();
   });
 
+  const setMainWrapperRect = (): void => {
+    const mainWrapper = component.mainWrapperRef?.nativeElement;
+    expect(mainWrapper).toBeTruthy();
+    if (!mainWrapper) {
+      return;
+    }
+
+    mainWrapper.scrollLeft = 0;
+    mainWrapper.scrollTop = 0;
+    Object.defineProperty(mainWrapper, 'getBoundingClientRect', {
+      value: () =>
+        ({
+          left: 0,
+          top: 0,
+          right: 1200,
+          bottom: 800,
+          width: 1200,
+          height: 800,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    });
+  };
+
+  const createDropEvent = (
+    target: HTMLElement,
+    dataTransfer: DataTransfer,
+    point: { clientX: number; clientY: number },
+  ): DragEvent => {
+    const event = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent;
+    Object.defineProperties(event, {
+      clientX: { value: point.clientX },
+      clientY: { value: point.clientY },
+      target: { value: target },
+      dataTransfer: { value: dataTransfer },
+    });
+    return event;
+  };
+
   it('should create', () => {
     expect(component).toBeTruthy();
+  });
+
+  it('shows loading text while websocket is disconnected or data is syncing', () => {
+    fakeCollab.setConnectionState(false, false);
+    fixture.detectChanges();
+
+    const loadingState = fixture.nativeElement.querySelector('.timeline-loading-state');
+    expect(loadingState?.textContent).toContain('Loading Data...');
+    expect(fixture.nativeElement.querySelector('.timeline-main')).toBeFalsy();
+
+    fakeCollab.setConnectionState(true, true);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.timeline-loading-state')).toBeFalsy();
+    expect(fixture.nativeElement.querySelector('.timeline-main')).toBeTruthy();
   });
 
   it('renders width and left style from ticks for strips', () => {
@@ -569,6 +636,213 @@ describe('AnienTimelineComponent', () => {
       .timelineItems()
       .find((item) => item.id === stripPlacementId && item.type === 'strip');
     expect(movedStrip?.parentFolderId).toBe(rootFolderSourceId);
+  });
+
+  it('converts shedule strip into a 3x2 folder on external drop', () => {
+    stateService.resetToDemoTimeline();
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    const stripPlacementId = stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 5,
+      },
+      {
+        sourceName: 'Alpha shedule Beta',
+        kind: 'solid',
+        startTick: 40,
+        durationTicks: 300,
+      },
+    );
+    expect(stripPlacementId).toBeTruthy();
+    fixture.detectChanges();
+
+    const stripItem = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(stripItem).toBeTruthy();
+    if (!stripItem || stripItem.type !== 'strip') {
+      return;
+    }
+
+    component.onStripExternalDrop(new Event('drop') as DragEvent, stripItem);
+    fixture.detectChanges();
+
+    const removedStrip = component
+      .timelineItems()
+      .find((item) => item.id === stripPlacementId && item.type === 'strip');
+    expect(removedStrip).toBeFalsy();
+
+    const createdFolder = component
+      .timelineItems()
+      .find(
+        (item) =>
+          item.type === 'folder' &&
+          item.startTick === 40 &&
+          item.startRow === 5 &&
+          item.durationTicks === 300,
+      );
+    expect(createdFolder).toBeTruthy();
+    if (!createdFolder || createdFolder.type !== 'folder') {
+      return;
+    }
+
+    expect(createdFolder.name).toBe('Alpha  Beta');
+    expect(createdFolder.scheduleBrand).toBe('ae');
+
+    const childStrips = component
+      .timelineItems()
+      .filter(
+        (item): item is StripVM =>
+          item.type === 'strip' && item.parentFolderId === createdFolder.sourceId,
+      );
+    expect(childStrips).toHaveLength(6);
+    expect(childStrips.every((item) => item.laneSpan === 2)).toBe(true);
+    expect(childStrips.every((item) => item.sourceKind !== 'solid')).toBe(true);
+
+    const startRows = childStrips.map((item) => item.startRow).sort((left, right) => left - right);
+    expect(startRows).toEqual([0, 0, 0, 2, 2, 2]);
+
+    const startTicks = [...new Set(childStrips.map((item) => item.startTick))].sort(
+      (left, right) => left - right,
+    );
+    expect(startTicks).toEqual([0, 100, 200]);
+  });
+
+  it('creates a strip when plain text is dropped on timeline background', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+    setMainWrapperRect();
+
+    const timelineMain = fixture.nativeElement.querySelector(
+      '.timeline-main',
+    ) as HTMLElement | null;
+    expect(timelineMain).toBeTruthy();
+    if (!timelineMain) {
+      return;
+    }
+
+    const countBefore = component.timelineItems().length;
+    const dataTransfer = {
+      files: [] as unknown as FileList,
+      getData: (type: string) => (type === 'text/plain' ? 'Dropped body text' : ''),
+    } as unknown as DataTransfer;
+
+    component.onTimelineDrop(
+      createDropEvent(timelineMain, dataTransfer, {
+        clientX: 80,
+        clientY: 68,
+      }),
+    );
+    fixture.detectChanges();
+
+    const createdStrip = component
+      .timelineItems()
+      .find((item): item is StripVM => item.type === 'strip' && item.sourceName === 'Dropped Text');
+
+    expect(component.timelineItems().length).toBe(countBefore + 1);
+    expect(createdStrip).toBeTruthy();
+    expect(createdStrip?.durationTicks).toBe(120);
+  });
+
+  it('creates a strip when image file is dropped on timeline background', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+    setMainWrapperRect();
+
+    const timelineMain = fixture.nativeElement.querySelector(
+      '.timeline-main',
+    ) as HTMLElement | null;
+    expect(timelineMain).toBeTruthy();
+    if (!timelineMain) {
+      return;
+    }
+
+    const countBefore = component.timelineItems().length;
+    const imageFile = new File(['image-bytes'], 'drop-image.png', { type: 'image/png' });
+    const dataTransfer = {
+      files: [imageFile] as unknown as FileList,
+      getData: () => '',
+    } as unknown as DataTransfer;
+
+    component.onTimelineDrop(
+      createDropEvent(timelineMain, dataTransfer, {
+        clientX: 120,
+        clientY: 102,
+      }),
+    );
+    fixture.detectChanges();
+
+    const createdStrip = component
+      .timelineItems()
+      .find(
+        (item): item is StripVM => item.type === 'strip' && item.sourceName === 'drop-image.png',
+      );
+
+    expect(component.timelineItems().length).toBe(countBefore + 1);
+    expect(createdStrip).toBeTruthy();
+    expect(createdStrip?.durationTicks).toBe(300);
+  });
+
+  it('does not create a strip when dropped content is unsupported', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+    setMainWrapperRect();
+
+    const timelineMain = fixture.nativeElement.querySelector(
+      '.timeline-main',
+    ) as HTMLElement | null;
+    expect(timelineMain).toBeTruthy();
+    if (!timelineMain) {
+      return;
+    }
+
+    const countBefore = component.timelineItems().length;
+    const dataTransfer = {
+      files: [] as unknown as FileList,
+      getData: () => '',
+    } as unknown as DataTransfer;
+
+    component.onTimelineDrop(
+      createDropEvent(timelineMain, dataTransfer, {
+        clientX: 200,
+        clientY: 170,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(component.timelineItems().length).toBe(countBefore);
+  });
+
+  it('does not create a strip when dropping over an existing strip', () => {
+    stateService.resetToDemoTimeline();
+    fixture.detectChanges();
+    setMainWrapperRect();
+
+    const stripElement = fixture.nativeElement.querySelector(
+      '.timeline-main .strip',
+    ) as HTMLElement | null;
+    expect(stripElement).toBeTruthy();
+    if (!stripElement) {
+      return;
+    }
+
+    const countBefore = component.timelineItems().length;
+    const dataTransfer = {
+      files: [] as unknown as FileList,
+      getData: (type: string) => (type === 'text/plain' ? 'Should not create' : ''),
+    } as unknown as DataTransfer;
+
+    component.onTimelineDrop(
+      createDropEvent(stripElement, dataTransfer, {
+        clientX: 60,
+        clientY: 40,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(component.timelineItems().length).toBe(countBefore);
   });
 
   it('applies clip-path to child strip that overflows parent folder bounds', () => {
