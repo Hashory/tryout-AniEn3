@@ -1,7 +1,8 @@
 # See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Database's data
+# Application's data
 apps/server/hocuspocus.sqlite
+apps/server/uploads/
 
 # Compiled output
 dist/

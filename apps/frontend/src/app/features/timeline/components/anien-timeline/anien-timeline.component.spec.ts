@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { vi } from 'vitest';
 import { AnienTimelineComponent } from './anien-timeline.component';
 import { StripVM, TimelineStateService } from '../../services/timeline-state.service';
+import { TimelineUploadService } from '../../services/timeline-upload.service';
 import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
 
 class FakeYjsDocumentService {
@@ -234,6 +235,51 @@ describe('AnienTimelineComponent', () => {
         current.absoluteStartTick,
       );
     }
+  });
+
+  it('uploads dropped files and stores upload metadata in strip source', async () => {
+    fixture.detectChanges();
+    setMainWrapperRect();
+
+    const uploadService = TestBed.inject(TimelineUploadService);
+    const uploadSpy = vi.spyOn(uploadService, 'uploadFile').mockResolvedValue({
+      fileName: 'asset.png',
+      mimeType: 'image/png',
+      size: 4,
+      filePath: '/uploads/mock/asset.png',
+      fileUrl: 'http://localhost:14202/uploads/mock/asset.png',
+    });
+    const addStripSpy = vi.spyOn(stateService, 'addStrip');
+
+    const timelineMain = fixture.nativeElement.querySelector(
+      '.timeline-main',
+    ) as HTMLElement | null;
+    expect(timelineMain).toBeTruthy();
+    if (!timelineMain) {
+      return;
+    }
+
+    const file = new File(['test'], 'asset.png', { type: 'image/png' });
+    const dataTransfer = {
+      files: [file],
+      getData: () => '',
+    } as unknown as DataTransfer;
+    const dropEvent = createDropEvent(timelineMain, dataTransfer, { clientX: 120, clientY: 120 });
+
+    await component.onTimelineDrop(dropEvent);
+
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+    expect(addStripSpy).toHaveBeenCalledTimes(1);
+    const addStripPayload = addStripSpy.mock.calls[0]?.[1];
+    expect(addStripPayload?.sourceName).toBe('asset.png');
+    expect(addStripPayload?.kind).toBe('media');
+    expect(addStripPayload?.metadata).toEqual({
+      uploadedFilePath: '/uploads/mock/asset.png',
+      uploadedFileUrl: 'http://localhost:14202/uploads/mock/asset.png',
+      originalFileName: 'asset.png',
+      mimeType: 'image/png',
+      size: 4,
+    });
   });
 
   it('updates the timeline tick-size CSS variable when zoom level changes', () => {

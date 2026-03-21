@@ -23,6 +23,7 @@ export interface StripCreationInput {
   sourceName: string;
   kind?: StripSource['kind'];
   availableDurationTicks?: number;
+  metadata?: Record<string, unknown>;
   startTick: number;
   durationTicks: number;
   sourceOffsetTicks?: number;
@@ -43,6 +44,7 @@ export interface StripUpdateInput {
   sourceName?: string;
   kind?: StripSource['kind'];
   availableDurationTicks?: number | null;
+  metadata?: Record<string, unknown> | null;
   sourceOffsetTicks?: number;
   durationTicks?: number;
   startTick?: number;
@@ -337,7 +339,7 @@ export class YjsTimelineService implements OnDestroy {
           name: stripData.sourceName,
           availableDurationTicks:
             stripData.availableDurationTicks ?? existingSource?.availableDurationTicks,
-          metadata: existingSource?.metadata,
+          metadata: stripData.metadata ?? existingSource?.metadata,
         };
 
         workingSnapshot.placements[placementId] = {
@@ -462,6 +464,9 @@ export class YjsTimelineService implements OnDestroy {
           }
           if (updates.availableDurationTicks !== undefined) {
             source.availableDurationTicks = updates.availableDurationTicks ?? undefined;
+          }
+          if (updates.metadata !== undefined) {
+            source.metadata = updates.metadata ?? undefined;
           }
         }
 

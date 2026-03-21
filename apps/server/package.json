@@ -13,9 +13,11 @@
     "@hocuspocus/extension-logger": "catalog:",
     "@hocuspocus/extension-sqlite": "catalog:",
     "@hocuspocus/server": "catalog:",
+    "formidable": "catalog:",
     "ws": "catalog:"
   },
   "devDependencies": {
+    "@types/formidable": "catalog:",
     "@types/ws": "catalog:",
     "eslint": "catalog:",
     "globals": "^17.4.0",

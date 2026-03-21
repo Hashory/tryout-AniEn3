@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
 import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
+import { TimelineUploadService } from '../../services/timeline-upload.service';
 import { AnienFolderComponent } from './anien-folder.component';
 import { AnienStripComponent } from './anien-strip.component';
 
@@ -41,7 +42,9 @@ interface DropProbePoint {
 
 interface ExternalDropStripInput {
   sourceName: string;
+  kind: 'media' | 'generated';
   durationTicks: number;
+  file?: File;
 }
 
 interface ItemDragState {
@@ -571,6 +574,7 @@ interface ItemDragState {
 export class AnienTimelineComponent implements OnDestroy {
   private readonly stateService = inject(TimelineStateService);
   private readonly collabService = inject(YjsDocumentService);
+  private readonly uploadService = inject(TimelineUploadService);
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly ngZone = inject(NgZone);
 
@@ -946,7 +950,7 @@ export class AnienTimelineComponent implements OnDestroy {
     }
   }
 
-  public onTimelineDrop(event: DragEvent): void {
+  public async onTimelineDrop(event: DragEvent): Promise<void> {
     if (!this.isTimelineBackgroundDrop(event)) {
       return;
     }
@@ -974,6 +978,23 @@ export class AnienTimelineComponent implements OnDestroy {
       return;
     }
 
+    let sourceMetadata: Record<string, unknown> | undefined;
+    if (stripInput.file) {
+      try {
+        const uploadedFile = await this.uploadService.uploadFile(stripInput.file);
+        sourceMetadata = {
+          uploadedFilePath: uploadedFile.filePath,
+          uploadedFileUrl: uploadedFile.fileUrl,
+          originalFileName: uploadedFile.fileName,
+          mimeType: uploadedFile.mimeType,
+          size: uploadedFile.size,
+        };
+      } catch (error) {
+        console.error('Failed to upload dropped file', error);
+        return;
+      }
+    }
+
     this.stateService.addStrip(
       {
         parentFolderId: rootFolderSourceId,
@@ -981,7 +1002,8 @@ export class AnienTimelineComponent implements OnDestroy {
       },
       {
         sourceName: stripInput.sourceName,
-        kind: 'generated',
+        kind: stripInput.kind,
+        metadata: sourceMetadata,
         startTick: Math.max(0, Math.floor(dropProbe.absoluteTick)),
         durationTicks: stripInput.durationTicks,
         laneSpan: 1,
@@ -1990,7 +2012,19 @@ export class AnienTimelineComponent implements OnDestroy {
     if (imageFile) {
       return {
         sourceName: imageFile.name || 'Dropped Image',
+        kind: 'media',
         durationTicks: 300,
+        file: imageFile,
+      };
+    }
+
+    const genericFile = Array.from(dataTransfer.files ?? [])[0];
+    if (genericFile) {
+      return {
+        sourceName: genericFile.name || 'Dropped File',
+        kind: 'media',
+        durationTicks: 300,
+        file: genericFile,
       };
     }
 
@@ -1998,6 +2032,7 @@ export class AnienTimelineComponent implements OnDestroy {
     if (droppedText.length > 0) {
       return {
         sourceName: 'Dropped Text',
+        kind: 'generated',
         durationTicks: 120,
       };
     }
