@@ -247,7 +247,7 @@ describe('AnienTimelineComponent', () => {
       mimeType: 'image/png',
       size: 4,
       filePath: '/uploads/mock/asset.png',
-      fileUrl: 'http://localhost:14202/uploads/mock/asset.png',
+      fileUrl: 'http://localhost/ws/uploads/mock/asset.png',
     });
     const addStripSpy = vi.spyOn(stateService, 'addStrip');
 
@@ -275,7 +275,7 @@ describe('AnienTimelineComponent', () => {
     expect(addStripPayload?.kind).toBe('media');
     expect(addStripPayload?.metadata).toEqual({
       uploadedFilePath: '/uploads/mock/asset.png',
-      uploadedFileUrl: 'http://localhost:14202/uploads/mock/asset.png',
+      uploadedFileUrl: 'http://localhost/ws/uploads/mock/asset.png',
       originalFileName: 'asset.png',
       mimeType: 'image/png',
       size: 4,

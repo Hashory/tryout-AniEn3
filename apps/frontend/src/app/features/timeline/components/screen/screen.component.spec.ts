@@ -70,7 +70,7 @@ describe('ScreenComponent', () => {
         startTick: 10,
         durationTicks: 40,
         metadata: {
-          uploadedFileUrl: 'http://localhost:14202/uploads/image.png',
+          uploadedFileUrl: 'http://localhost/ws/uploads/image.png',
           mimeType: 'image/png',
         },
       },
@@ -99,7 +99,7 @@ describe('ScreenComponent', () => {
         startTick: 100,
         durationTicks: 40,
         metadata: {
-          uploadedFileUrl: 'http://localhost:14202/uploads/video.mp4',
+          uploadedFileUrl: 'http://localhost/ws/uploads/video.mp4',
           mimeType: 'video/mp4',
         },
       },
@@ -111,5 +111,33 @@ describe('ScreenComponent', () => {
     expect(video).toBeTruthy();
     expect(video?.src).toContain('/uploads/video.mp4');
     expect(fixture.nativeElement.querySelector('img')).toBeFalsy();
+  });
+
+  it('normalizes legacy 14202 uploaded URLs to the /ws proxy path', () => {
+    const rootFolderSourceId = stateService.rootFolderSourceId();
+    expect(rootFolderSourceId).toBeTruthy();
+
+    stateService.addStrip(
+      {
+        parentFolderId: rootFolderSourceId ?? undefined,
+        trackIndex: 0,
+      },
+      {
+        sourceName: 'Legacy Image',
+        kind: 'media',
+        startTick: 20,
+        durationTicks: 30,
+        metadata: {
+          uploadedFileUrl: 'http://legacy.example:14202/uploads/legacy-image.png',
+          mimeType: 'image/png',
+        },
+      },
+    );
+    stateService.setCurrentTick(25);
+    fixture.detectChanges();
+
+    expect(component.activeMedia()?.url).toBe(
+      `${window.location.origin}/ws/uploads/legacy-image.png`,
+    );
   });
 });

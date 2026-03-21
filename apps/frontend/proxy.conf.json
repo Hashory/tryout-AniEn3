@@ -1,0 +1,19 @@
+{
+  "/ws": {
+    "target": "http://localhost:14202",
+    "secure": false,
+    "ws": true,
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/ws": ""
+    }
+  },
+  "/infra": {
+    "target": "http://localhost:14203",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/infra": ""
+    }
+  }
+}

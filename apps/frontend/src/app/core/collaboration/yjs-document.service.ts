@@ -8,6 +8,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 export class YjsDocumentService {
   private readonly doc: Y.Doc;
   private readonly provider: HocuspocusProvider;
+  private readonly websocketUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
   private readonly _isConnected = signal(false);
   private readonly _isSynced = signal(false);
 
@@ -17,7 +18,7 @@ export class YjsDocumentService {
   constructor() {
     this.doc = new Y.Doc();
     this.provider = new HocuspocusProvider({
-      url: `ws://${window.location.hostname}:14202`,
+      url: this.websocketUrl,
       name: 'dev-anien',
       document: this.doc,
     });

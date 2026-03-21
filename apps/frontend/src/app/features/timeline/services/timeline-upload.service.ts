@@ -22,7 +22,7 @@ interface UploadResponse {
   providedIn: 'root',
 })
 export class TimelineUploadService {
-  private readonly uploadEndpoint = `${window.location.protocol}//${window.location.hostname}:14202/upload`;
+  private readonly uploadEndpoint = `${window.location.origin}/ws/upload`;
 
   public async uploadFile(file: File): Promise<UploadedTimelineFile> {
     const form = new FormData();
@@ -38,16 +38,18 @@ export class TimelineUploadService {
       throw new Error(result.error ?? 'Upload failed');
     }
 
-    if (!result.fileName || !result.mimeType || !result.filePath || !result.fileUrl) {
+    if (!result.fileName || !result.mimeType || !result.filePath) {
       throw new Error('Upload response is missing required fields');
     }
+
+    const fileUrl = `${window.location.origin}/ws${result.filePath}`;
 
     return {
       fileName: result.fileName,
       mimeType: result.mimeType,
       size: result.size ?? file.size,
       filePath: result.filePath,
-      fileUrl: result.fileUrl,
+      fileUrl,
     };
   }
 }

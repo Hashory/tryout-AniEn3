@@ -156,16 +156,46 @@ export class ScreenComponent {
 
   private resolveMediaUrl(metadata: Record<string, unknown>): string | null {
     if (typeof metadata['uploadedFileUrl'] === 'string' && metadata['uploadedFileUrl'].length > 0) {
-      return metadata['uploadedFileUrl'];
+      const normalizedUrl = this.normalizeUploadedFileUrl(metadata['uploadedFileUrl']);
+      return normalizedUrl ?? metadata['uploadedFileUrl'];
     }
 
     if (
       typeof metadata['uploadedFilePath'] === 'string' &&
       metadata['uploadedFilePath'].length > 0
     ) {
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
-      return `${protocol}//${hostname}:14202${metadata['uploadedFilePath']}`;
+      return `${window.location.origin}/ws${metadata['uploadedFilePath']}`;
+    }
+
+    return null;
+  }
+
+  private normalizeUploadedFileUrl(uploadedFileUrl: string): string | null {
+    if (uploadedFileUrl.startsWith('/ws/')) {
+      return `${window.location.origin}${uploadedFileUrl}`;
+    }
+
+    if (uploadedFileUrl.startsWith('/uploads/')) {
+      return `${window.location.origin}/ws${uploadedFileUrl}`;
+    }
+
+    try {
+      const parsedUrl = new URL(uploadedFileUrl, window.location.origin);
+      const pathWithQuery = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+
+      if (parsedUrl.pathname.startsWith('/ws/')) {
+        return `${window.location.origin}${pathWithQuery}`;
+      }
+
+      if (parsedUrl.pathname.startsWith('/uploads/')) {
+        return `${window.location.origin}/ws${pathWithQuery}`;
+      }
+
+      if (parsedUrl.port === '14202') {
+        return `${window.location.origin}/ws${pathWithQuery}`;
+      }
+    } catch {
+      return null;
     }
 
     return null;
