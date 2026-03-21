@@ -1,6 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
 import { AnienTimelineComponent } from '../../features/timeline/components/anien-timeline/anien-timeline.component';
+import { ScreenComponent } from '../../features/timeline/components/screen/screen.component';
 import { AnienMenuBarComponent } from './anien-menu-bar/anien-menu-bar.component';
 import { TimelineViewService } from '../../core/layout/timeline-view.service';
 import { LayoutPersistenceService } from '../../core/layout/layout-persistence.service';
@@ -8,7 +9,7 @@ import { LayoutPersistenceService } from '../../core/layout/layout-persistence.s
 @Component({
   selector: 'app-main-layout',
   standalone: true,
-  imports: [AngularSplitModule, AnienTimelineComponent, AnienMenuBarComponent],
+  imports: [AngularSplitModule, AnienTimelineComponent, ScreenComponent, AnienMenuBarComponent],
   template: `
     <app-anien-menu-bar></app-anien-menu-bar>
     <div class="app-container">
@@ -20,7 +21,7 @@ import { LayoutPersistenceService } from '../../core/layout/layout-persistence.s
         <as-split-area [size]="mainVerticalSizes[0]">
           <as-split direction="horizontal" (dragEnd)="onTopHorizontalDragEnd($event)">
             <as-split-area [size]="topHorizontalSizes[0]">
-              <div class="pane-content" style="border-radius: 0 8px 8px 8px;">Preview</div>
+              <app-screen></app-screen>
             </as-split-area>
             <as-split-area [size]="topHorizontalSizes[1]">
               <div class="pane-content" style="border-radius: 8px 0 8px 8px;">Node Editor</div>
