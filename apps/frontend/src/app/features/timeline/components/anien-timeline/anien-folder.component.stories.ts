@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/angular';
-import { AnienFolderComponent } from './anien-folder.component';
-import type { FolderVM } from '../../services/timeline-state.service';
+import { AnienFolderComponent } from '#app/features/timeline/components/anien-timeline/anien-folder.component';
+import type { FolderVM } from '#app/features/timeline/services/timeline-state.service';
 
 const baseFolder: FolderVM = {
   id: 'folder-story',

@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import * as Y from 'yjs';
 import { vi } from 'vitest';
-import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
-import { YjsTimelineService } from './timeline-store.service';
+import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
+import { YjsTimelineService } from '#app/features/timeline/services/timeline-store.service';
 
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();

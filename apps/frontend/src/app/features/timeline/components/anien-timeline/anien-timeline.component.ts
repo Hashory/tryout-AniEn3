@@ -10,11 +10,15 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
-import { FolderVM, StripVM, TimelineStateService } from '../../services/timeline-state.service';
-import { TimelineUploadService } from '../../services/timeline-upload.service';
-import { AnienFolderComponent } from './anien-folder.component';
-import { AnienStripComponent } from './anien-strip.component';
+import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
+import {
+  FolderVM,
+  StripVM,
+  TimelineStateService,
+} from '#app/features/timeline/services/timeline-state.service';
+import { TimelineUploadService } from '#app/features/timeline/services/timeline-upload.service';
+import { AnienFolderComponent } from '#app/features/timeline/components/anien-timeline/anien-folder.component';
+import { AnienStripComponent } from '#app/features/timeline/components/anien-timeline/anien-strip.component';
 
 interface SnapGuideState {
   tick: number | null;

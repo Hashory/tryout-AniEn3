@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
-import { ScheduleStripBrand, StripVM } from '../../services/timeline-state.service';
+import {
+  ScheduleStripBrand,
+  StripVM,
+} from '#app/features/timeline/services/timeline-state.service';
 
 const SCHEDULE_BADGE_LABELS: Record<ScheduleStripBrand, string> = {
   ae: 'Ae',

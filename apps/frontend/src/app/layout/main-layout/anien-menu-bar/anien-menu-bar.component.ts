@@ -5,8 +5,8 @@ import { OverlayModule } from '@angular/cdk/overlay';
 import { Dialog, DialogModule } from '@angular/cdk/dialog';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroCheckMicro } from '@ng-icons/heroicons/micro';
-import { AboutDialogComponent } from './about-dialog.component';
-import { TimelineViewService } from '../../../core/layout/timeline-view.service';
+import { AboutDialogComponent } from '#app/layout/main-layout/anien-menu-bar/about-dialog.component';
+import { TimelineViewService } from '#app/core/layout/timeline-view.service';
 
 @Component({
   selector: 'app-anien-menu-bar',

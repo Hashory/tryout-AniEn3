@@ -1,9 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import * as Y from 'yjs';
-import { ScreenComponent } from './screen.component';
-import { TimelineStateService } from '../../services/timeline-state.service';
-import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
+import { ScreenComponent } from '#app/features/timeline/components/screen/screen.component';
+import { TimelineStateService } from '#app/features/timeline/services/timeline-state.service';
+import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
 
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();

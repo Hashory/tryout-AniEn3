@@ -2,10 +2,13 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import * as Y from 'yjs';
 import { vi } from 'vitest';
-import { AnienTimelineComponent } from './anien-timeline.component';
-import { StripVM, TimelineStateService } from '../../services/timeline-state.service';
-import { TimelineUploadService } from '../../services/timeline-upload.service';
-import { YjsDocumentService } from '../../../../core/collaboration/yjs-document.service';
+import { AnienTimelineComponent } from '#app/features/timeline/components/anien-timeline/anien-timeline.component';
+import {
+  StripVM,
+  TimelineStateService,
+} from '#app/features/timeline/services/timeline-state.service';
+import { TimelineUploadService } from '#app/features/timeline/services/timeline-upload.service';
+import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
 
 class FakeYjsDocumentService {
   private readonly doc = new Y.Doc();

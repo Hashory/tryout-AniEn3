@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { StripVM, TimelineStateService } from '../../services/timeline-state.service';
+import {
+  StripVM,
+  TimelineStateService,
+} from '#app/features/timeline/services/timeline-state.service';
 
 type ScreenMediaType = 'image' | 'video';
 

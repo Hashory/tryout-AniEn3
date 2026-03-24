@@ -1,6 +1,6 @@
 import { Injectable, OnDestroy, inject } from '@angular/core';
 import * as Y from 'yjs';
-import { YjsDocumentService } from '../../../core/collaboration/yjs-document.service';
+import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
 import {
   FolderItemSnapshot,
   StripItemSnapshot,
@@ -14,8 +14,11 @@ import {
   YPlacementsMap,
   YStripSourceMap,
   YStripSourcesMap,
-} from '../models/timeline.types';
-import { createDemoTimelineSnapshot, normalizeTimelineSnapshot } from './timeline-normalization';
+} from '#app/features/timeline/models/timeline.types';
+import {
+  createDemoTimelineSnapshot,
+  normalizeTimelineSnapshot,
+} from '#app/features/timeline/services/timeline-normalization';
 
 export interface StripCreationInput {
   id?: string;

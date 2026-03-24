@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { heroChevronUpDownMicro, heroFolderMicro } from '@ng-icons/heroicons/micro';
-import { FolderVM } from '../../services/timeline-state.service';
-import type { TimelineItemResizeStart } from './anien-strip.component';
+import { FolderVM } from '#app/features/timeline/services/timeline-state.service';
+import type { TimelineItemResizeStart } from '#app/features/timeline/components/anien-timeline/anien-strip.component';
 
 @Component({
   selector: 'app-anien-folder',

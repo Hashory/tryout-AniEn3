@@ -7,7 +7,7 @@ import {
   TIMELINE_SCHEMA_VERSION,
   TimelineRoot,
   TimelineSnapshot,
-} from '../models/timeline.types';
+} from '#app/features/timeline/models/timeline.types';
 
 interface NormalizeOptions {
   preferredPlacementIds?: Iterable<string>;
