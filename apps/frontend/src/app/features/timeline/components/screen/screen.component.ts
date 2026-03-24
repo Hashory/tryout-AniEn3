@@ -40,9 +40,6 @@ interface ScreenMediaViewModel {
       } @else {
         <div class="screen-empty" role="status" aria-live="polite">
           <p class="screen-empty-title">No media on current tick</p>
-          <p class="screen-empty-subtitle">
-            Move the playhead onto an uploaded image or video strip.
-          </p>
         </div>
       }
     </section>
@@ -57,9 +54,7 @@ interface ScreenMediaViewModel {
       .screen-root {
         height: 100%;
         width: 100%;
-        background:
-          radial-gradient(circle at 20% 20%, rgba(32, 88, 102, 0.25), transparent 42%),
-          radial-gradient(circle at 82% 70%, rgba(212, 137, 43, 0.24), transparent 50%), #090f12;
+        background-color: #000000;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -87,15 +82,6 @@ interface ScreenMediaViewModel {
       .screen-empty-title {
         margin: 0;
         font-size: 14px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .screen-empty-subtitle {
-        margin: 0;
-        font-size: 12px;
-        opacity: 0.82;
       }
     `,
   ],
