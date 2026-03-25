@@ -1,10 +1,10 @@
-import { Component, signal } from '@angular/core';
-import { AnienMainComponent } from '#app/features/main/anien-main.component';
+import { Component } from '@angular/core';
+import { RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
-  imports: [AnienMainComponent],
-  template: ` <app-anien-main></app-anien-main> `,
+  imports: [RouterOutlet],
+  template: ` <router-outlet /> `,
   styles: [
     `
       :host {
@@ -14,6 +14,4 @@ import { AnienMainComponent } from '#app/features/main/anien-main.component';
     `,
   ],
 })
-export class App {
-  protected readonly title = signal('tryout-AniEn3');
-}
+export class App {}

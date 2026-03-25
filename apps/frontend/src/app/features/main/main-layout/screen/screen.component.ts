@@ -15,7 +15,6 @@ interface ScreenMediaViewModel {
 
 @Component({
   selector: 'app-screen',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="screen-root" aria-label="Preview screen">

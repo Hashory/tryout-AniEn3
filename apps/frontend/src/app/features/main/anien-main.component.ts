@@ -4,7 +4,7 @@ import { MainLayoutComponent } from '#app/features/main/main-layout/main-layout.
 @Component({
   selector: 'app-anien-main',
   imports: [MainLayoutComponent],
-  template: ` <app-main-layout></app-main-layout> `,
+  template: ` <app-main-layout />`,
   styles: [
     `
       :host {
