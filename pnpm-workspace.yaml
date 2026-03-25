@@ -22,7 +22,7 @@ catalog:
   '@hocuspocus/server': ^3.4.4
   '@ng-icons/core': ^33.0.0
   '@ng-icons/heroicons': ^33.0.0
-  '@storybook/addon-a11y': ^10.3.0
+  '@storybook/addon-a11y': ^10.3.3
   '@storybook/angular': ^10.3.0
   '@types/formidable': ^3.5.0
   '@types/jasmine': ~6.0.0
