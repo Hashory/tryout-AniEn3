@@ -6,4 +6,9 @@ export const routes: Routes = [
     loadComponent: () =>
       import('#app/features/main/anien-main.component').then((m) => m.AnienMainComponent),
   },
+  {
+    path: '**',
+    loadComponent: () =>
+      import('./features/404/not-found.component').then((m) => m.NotFoundComponent),
+  },
 ];
