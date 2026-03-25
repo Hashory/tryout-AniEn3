@@ -16,3 +16,7 @@ body {
 .as-split-area {
   background-color: #1c2024 !important;
 }
+
+* {
+  box-sizing: border-box;
+}

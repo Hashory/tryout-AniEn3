@@ -11,6 +11,7 @@ export interface TimelineLayoutState {
   visibility?: TimelineVisibilityState;
   mainVertical?: [number, number];
   topHorizontal?: [number, number];
+  activePanel?: 'task' | 'timeline';
 }
 
 const STORAGE_KEY = 'anien.layout.v1';
