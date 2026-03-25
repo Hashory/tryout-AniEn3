@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import {
   LayoutPersistenceService,
   TimelineLayoutState,
-} from '#app/core/layout/layout-persistence.service';
+} from '#app/features/main/main-layout/layout-persistence.service';
 
 type TimelineKind = 'script' | 'video' | 'audio' | 'keyframe';
 

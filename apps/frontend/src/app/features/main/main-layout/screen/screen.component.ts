@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import {
   StripVM,
   TimelineStateService,
-} from '#app/features/timeline/services/timeline-state.service';
+} from '#app/features/main/main-layout/timeline/services/timeline-state.service';
 
 type ScreenMediaType = 'image' | 'video';
 
@@ -15,6 +15,7 @@ interface ScreenMediaViewModel {
 
 @Component({
   selector: 'app-screen',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="screen-root" aria-label="Preview screen">
@@ -82,6 +83,9 @@ interface ScreenMediaViewModel {
       .screen-empty-title {
         margin: 0;
         font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
     `,
   ],

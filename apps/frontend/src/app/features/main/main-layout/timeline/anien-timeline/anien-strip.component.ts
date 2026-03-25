@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output, signal } f
 import {
   ScheduleStripBrand,
   StripVM,
-} from '#app/features/timeline/services/timeline-state.service';
+} from '#app/features/main/main-layout/timeline/services/timeline-state.service';
 
 const SCHEDULE_BADGE_LABELS: Record<ScheduleStripBrand, string> = {
   ae: 'Ae',
@@ -18,6 +18,7 @@ export interface TimelineItemResizeStart {
 
 @Component({
   selector: 'app-anien-strip',
+  standalone: true,
   host: {
     '[class.focused]': 'isFocused()',
   },

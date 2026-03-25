@@ -1,10 +1,10 @@
 import { Component, signal } from '@angular/core';
-import { MainLayoutComponent } from '#app/layout/main-layout/main-layout.component';
+import { AnienMainComponent } from '#app/features/main/anien-main.component';
 
 @Component({
   selector: 'app-root',
-  imports: [MainLayoutComponent],
-  template: ` <app-main-layout></app-main-layout> `,
+  imports: [AnienMainComponent],
+  template: ` <app-anien-main></app-anien-main> `,
   styles: [
     `
       :host {

@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import * as Y from 'yjs';
-import { ScreenComponent } from '#app/features/timeline/components/screen/screen.component';
-import { TimelineStateService } from '#app/features/timeline/services/timeline-state.service';
+import { ScreenComponent } from '#app/features/main/main-layout/screen/screen.component';
+import { TimelineStateService } from '#app/features/main/main-layout/timeline/services/timeline-state.service';
 import { YjsDocumentService } from '#app/core/collaboration/yjs-document.service';
 
 class FakeYjsDocumentService {

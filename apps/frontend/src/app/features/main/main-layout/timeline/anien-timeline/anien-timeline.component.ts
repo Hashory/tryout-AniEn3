@@ -15,10 +15,11 @@ import {
   FolderVM,
   StripVM,
   TimelineStateService,
-} from '#app/features/timeline/services/timeline-state.service';
-import { TimelineUploadService } from '#app/features/timeline/services/timeline-upload.service';
-import { AnienFolderComponent } from '#app/features/timeline/components/anien-timeline/anien-folder.component';
-import { AnienStripComponent } from '#app/features/timeline/components/anien-timeline/anien-strip.component';
+} from '#app/features/main/main-layout/timeline/services/timeline-state.service';
+import type { MoveTargetInput } from '#app/features/main/main-layout/timeline/services/timeline-store.service';
+import { TimelineUploadService } from '#app/features/main/main-layout/timeline/services/timeline-upload.service';
+import { AnienFolderComponent } from '#app/features/main/main-layout/timeline/anien-timeline/anien-folder.component';
+import { AnienStripComponent } from '#app/features/main/main-layout/timeline/anien-timeline/anien-strip.component';
 
 interface SnapGuideState {
   tick: number | null;
@@ -73,6 +74,7 @@ interface ItemDragState {
 
 @Component({
   selector: 'app-anien-timeline',
+  standalone: true,
   host: {
     '[style.--timeline-tick-size]': 'tickSizeCss()',
     '(wheel)': 'onHostWheel($event)',
@@ -2066,13 +2068,8 @@ export class AnienTimelineComponent implements OnDestroy {
     draggedItem: StripVM | FolderVM,
     dropProbe: DropProbePoint | null,
   ):
-    | (Required<
-        Pick<import('../../services/timeline-store.service').MoveTargetInput, 'parentFolderId'>
-      > &
-        Pick<
-          import('../../services/timeline-store.service').MoveTargetInput,
-          'trackIndex' | 'startTick'
-        >)
+    | (Required<Pick<MoveTargetInput, 'parentFolderId'>> &
+        Pick<MoveTargetInput, 'trackIndex' | 'startTick'>)
     | null {
     const rootFolderSourceId = this.rootFolderSourceId();
     if (!rootFolderSourceId) {

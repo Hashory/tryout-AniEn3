@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/angular';
-import { AnienStripComponent } from '#app/features/timeline/components/anien-timeline/anien-strip.component';
-import type { StripVM } from '#app/features/timeline/services/timeline-state.service';
+import { AnienStripComponent } from '#app/features/main/main-layout/timeline/anien-timeline/anien-strip.component';
+import type { StripVM } from '#app/features/main/main-layout/timeline/services/timeline-state.service';
 
 const baseStrip: StripVM = {
   id: 'strip-story',

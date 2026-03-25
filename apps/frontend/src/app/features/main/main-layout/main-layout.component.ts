@@ -1,10 +1,10 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { AngularSplitModule, SplitGutterInteractionEvent } from 'angular-split';
-import { AnienTimelineComponent } from '#app/features/timeline/components/anien-timeline/anien-timeline.component';
-import { ScreenComponent } from '#app/features/timeline/components/screen/screen.component';
-import { AnienMenuBarComponent } from '#app/layout/main-layout/anien-menu-bar/anien-menu-bar.component';
-import { TimelineViewService } from '#app/core/layout/timeline-view.service';
-import { LayoutPersistenceService } from '#app/core/layout/layout-persistence.service';
+import { AnienTimelineComponent } from '#app/features/main/main-layout/timeline/anien-timeline/anien-timeline.component';
+import { ScreenComponent } from '#app/features/main/main-layout/screen/screen.component';
+import { AnienMenuBarComponent } from '#app/features/main/main-layout/anien-menu-bar/anien-menu-bar.component';
+import { TimelineViewService } from '#app/features/main/main-layout/timeline-view.service';
+import { LayoutPersistenceService } from '#app/features/main/main-layout/layout-persistence.service';
 
 @Component({
   selector: 'app-main-layout',

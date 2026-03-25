@@ -14,11 +14,11 @@ import {
   YPlacementsMap,
   YStripSourceMap,
   YStripSourcesMap,
-} from '#app/features/timeline/models/timeline.types';
+} from '#app/features/main/main-layout/timeline/models/timeline.types';
 import {
   createDemoTimelineSnapshot,
   normalizeTimelineSnapshot,
-} from '#app/features/timeline/services/timeline-normalization';
+} from '#app/features/main/main-layout/timeline/services/timeline-normalization';
 
 export interface StripCreationInput {
   id?: string;

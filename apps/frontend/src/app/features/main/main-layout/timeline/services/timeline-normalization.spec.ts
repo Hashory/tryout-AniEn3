@@ -3,12 +3,12 @@ import {
   TIMELINE_NORMALIZE_VERSION,
   TIMELINE_SCHEMA_VERSION,
   TimelineSnapshot,
-} from '#app/features/timeline/models/timeline.types';
+} from '#app/features/main/main-layout/timeline/models/timeline.types';
 import {
   createDemoTimelineSnapshot,
   markAndSweepTimelineSnapshot,
   normalizeTimelineSnapshot,
-} from '#app/features/timeline/services/timeline-normalization';
+} from '#app/features/main/main-layout/timeline/services/timeline-normalization';
 
 // Minimal valid snapshot for use as a base in tests.
 function makeMinimalSnapshot(): TimelineSnapshot {

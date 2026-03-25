@@ -7,8 +7,8 @@ import {
   StripCreationInput,
   StripUpdateInput,
   YjsTimelineService,
-} from '#app/features/timeline/services/timeline-store.service';
-import { TimelineSnapshot } from '#app/features/timeline/models/timeline.types';
+} from '#app/features/main/main-layout/timeline/services/timeline-store.service';
+import { TimelineSnapshot } from '#app/features/main/main-layout/timeline/models/timeline.types';
 
 interface TimelineDebugStats {
   schemaVersion: number;
