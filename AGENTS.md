@@ -10,7 +10,7 @@ Please write comments in English.
 Run these commands.
 
 ```
-pnpm run format
-pnpm run lint
-pnpm run typecheck
+just fmt
+just lint
+just typecheck
 ```

@@ -1,8 +1,8 @@
 pre-commit:
   commands:
     format:
-      glob: '*.{ts,html,css,json,md}'
-      run: pnpm prettier --write {staged_files} && git add {staged_files}
+      glob: '*.{ts,html,css,json,md,yml,yaml,mjs}'
+      run: just fmt-files {staged_files} && git add {staged_files}
 
     lint:
-      run: pnpm ng lint
+      run: just lint

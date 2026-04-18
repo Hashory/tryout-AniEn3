@@ -1,5 +1,5 @@
 {
-  "name": "@ani-en/server",
+  "name": "@ani-en/sync-server",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ani-en/shared": "workspace:*",
+    "@ani-en/shared-lib": "workspace:*",
     "@hocuspocus/extension-logger": "catalog:",
     "@hocuspocus/extension-sqlite": "catalog:",
     "@hocuspocus/server": "catalog:",

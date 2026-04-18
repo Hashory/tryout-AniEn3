@@ -3,16 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "docker:up": "docker compose -f infrastructure/docker-compose.yml up -d",
-    "docker:down": "docker compose -f infrastructure/docker-compose.yml down",
-    "docker:restart": "docker compose -f infrastructure/docker-compose.yml restart",
-    "dev": "pnpm --filter \"@ani-en/frontend\" --filter \"@ani-en/server\" --parallel run dev",
-    "build": "pnpm run \"/^build:.*/\"",
-    "build:frontend": "pnpm -F @ani-en/frontend build",
-    "lint": "pnpm -r run lint",
-    "typecheck": "pnpm -r run typecheck",
-    "format": "prettier . --write",
-    "format:check": "prettier . --check",
     "prepare": "lefthook install"
   },
   "devDependencies": {
