@@ -1,5 +1,5 @@
 {
-  "name": "@ani-en/frontend",
+  "name": "@ani-en/web-app",
   "version": "0.0.1",
   "scripts": {
     "ng": "ng",
@@ -9,9 +9,8 @@
     "test": "ng test",
     "lint": "ng lint",
     "typecheck": "ngc -p tsconfig.app.json --noEmit",
-    "format": "prettier . --write",
-    "storybook": "ng run frontend:storybook",
-    "storybook:build": "ng run frontend:build-storybook"
+    "storybook": "ng run web-app:storybook",
+    "storybook:build": "ng run web-app:build-storybook"
   },
   "private": true,
   "dependencies": {

@@ -3,8 +3,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "start",
+      "type": "shell",
+      "label": "just dev",
+      "command": "just dev",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",
@@ -21,8 +22,9 @@
       }
     },
     {
-      "type": "npm",
-      "script": "test",
+      "type": "shell",
+      "label": "web-app test",
+      "command": "pnpm --filter @ani-en/web-app run test",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",

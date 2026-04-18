@@ -1,8 +1,8 @@
 # See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
 # Application's data
-apps/server/hocuspocus.sqlite
-apps/server/uploads/
+packages/sync-server/hocuspocus.sqlite
+packages/sync-server/uploads/
 
 # Compiled output
 dist/
@@ -47,9 +47,9 @@ Thumbs.db
 
 # Workspace Specific
 .env
-infrastructure/garage-data/
-infrastructure/acme.json
-apps/server/data/
+packages/local-infra/garage-data/
+packages/local-infra/acme.json
+packages/sync-server/data/
 
 # Personal Contexts
 .personal_contexts/

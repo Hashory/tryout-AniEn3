@@ -1,5 +1,5 @@
 {
-  "name": "@ani-en/shared",
+  "name": "@ani-en/shared-lib",
   "version": "0.0.1",
   "main": "src/index.ts",
   "types": "src/index.ts",
