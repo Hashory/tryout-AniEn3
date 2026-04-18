@@ -28,7 +28,7 @@ catalog:
   '@types/node': ^25.5.0
   '@types/ws': ^8.18.1
   '@vitest/browser-playwright': ^4.0.18
-  angular-eslint: ^21.3.0
+  angular-eslint: ^21.3.1
   angular-split: ^20.0.0
   drizzle-kit: ^0.31.9
   drizzle-orm: ^0.45.1
