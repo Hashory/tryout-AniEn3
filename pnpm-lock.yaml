@@ -64,8 +64,8 @@ catalogs:
       specifier: ^33.0.0
       version: 33.1.0
     '@storybook/addon-a11y':
-      specifier: ^10.3.0
-      version: 10.3.0
+      specifier: ^10.3.5
+      version: 10.3.5
     '@storybook/angular':
       specifier: ^10.3.0
       version: 10.3.0
@@ -285,7 +285,7 @@ importers:
         version: 10.0.1(eslint@10.0.3(jiti@2.6.1))
       '@storybook/addon-a11y':
         specifier: 'catalog:'
-        version: 10.3.0(storybook@10.3.0(@testing-library/dom@10.4.1)(prettier@3.8.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
+        version: 10.3.5(storybook@10.3.0(@testing-library/dom@10.4.1)(prettier@3.8.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))
       '@storybook/angular':
         specifier: 'catalog:'
         version: 10.3.0(e453313a3acd9a5f340c6f79de40d610)
@@ -2488,10 +2488,10 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@storybook/addon-a11y@10.3.0':
-    resolution: {integrity: sha512-GOQP8kp0Pos3weW00U5FC2azt1zZQOcyihP+tINQO6/MDA3hts0rKMbS5+MyVULX7A5JE5uk7SzcZQj+EZ8Yrg==}
+  '@storybook/addon-a11y@10.3.5':
+    resolution: {integrity: sha512-5k6lpgfIeLxvNhE8v3wEzdiu73ONKjF4gmH1AHvfqYd8kIVzQJai0KCDxgvqNncXHQhIWkaf1fg6+9hKaYJyaw==}
     peerDependencies:
-      storybook: ^10.3.0
+      storybook: ^10.3.5
 
   '@storybook/angular@10.3.0':
     resolution: {integrity: sha512-VEbIdKzF54CFaqncB2lItROFIzd+5BsgD18lU8c4ydqmI8vzn0ZkQpgohg1CDckFcL77FOkYhVF7qYQ96gIWnA==}
@@ -8601,7 +8601,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@storybook/addon-a11y@10.3.0(storybook@10.3.0(@testing-library/dom@10.4.1)(prettier@3.8.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))':
+  '@storybook/addon-a11y@10.3.5(storybook@10.3.0(@testing-library/dom@10.4.1)(prettier@3.8.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))':
     dependencies:
       '@storybook/global': 5.0.0
       axe-core: 4.11.1
