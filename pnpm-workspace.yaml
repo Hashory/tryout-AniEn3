@@ -52,7 +52,7 @@ catalog:
   vitest: ^4.1.0
   ws: ^8.19.0
   y-indexeddb: ^9.0.12
-  yjs: ^13.6.27
+  yjs: ^13.6.30
   yjs-types: ^0.0.1
   zone.js: ~0.16.1
 
