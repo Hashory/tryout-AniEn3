@@ -5,12 +5,25 @@
 # https://containers.dev/guide/dependabot
 
 version: 2
+
 updates:
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
-      interval: weekly
+      interval: 'weekly'
+    groups:
+      npm-non-major:
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
+
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
-      interval: weekly
+      interval: 'weekly'
+    groups:
+      github-actions-all:
+        patterns:
+          - '*'
