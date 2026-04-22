@@ -1,0 +1,3 @@
+[submodule "packages/aftereffects-aep-parser"]
+	path = packages/aftereffects-aep-parser
+	url = https://github.com/boltframe/aftereffects-aep-parser.git
