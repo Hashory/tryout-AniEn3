@@ -1,3 +1,6 @@
 [submodule "packages/aftereffects-aep-parser"]
 	path = packages/aftereffects-aep-parser
 	url = https://github.com/boltframe/aftereffects-aep-parser.git
+[submodule "packages/rifx"]
+	path = packages/rifx
+	url = https://github.com/rioam2/rifx.git
