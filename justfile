@@ -6,18 +6,22 @@ default:
 
 fmt:
     pnpm exec prettier . --write
+    cargo fmt --all
 
 fmt-files *files:
     pnpm exec prettier --write {{files}}
 
 fmt-check:
     pnpm exec prettier . --check
+    cargo fmt --all --check
 
 lint:
     pnpm -r --if-present run lint
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 typecheck:
     pnpm -r --if-present run typecheck
+    cargo check --workspace --all-targets --all-features
 
 check: fmt-check lint typecheck
 

@@ -9,6 +9,7 @@ dist/
 tmp/
 out-tsc/
 bazel-out/
+target/
 
 # Node
 node_modules

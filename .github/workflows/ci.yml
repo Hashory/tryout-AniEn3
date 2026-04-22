@@ -24,6 +24,14 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:

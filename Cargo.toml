@@ -1,0 +1,3 @@
+[workspace]
+members = ["packages/check-24fps"]
+resolver = "3"

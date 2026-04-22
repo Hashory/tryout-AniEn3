@@ -1,0 +1,6 @@
+[package]
+name = "check-24fps"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
