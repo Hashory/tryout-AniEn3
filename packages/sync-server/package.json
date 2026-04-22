@@ -20,7 +20,7 @@
     "@types/formidable": "catalog:",
     "@types/ws": "catalog:",
     "eslint": "catalog:",
-    "globals": "^17.4.0",
+    "globals": "^17.5.0",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:"
   }
