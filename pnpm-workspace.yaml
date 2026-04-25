@@ -15,7 +15,7 @@ catalog:
   '@angular/platform-browser': ^21.2.10
   '@angular/router': ^21.2.10
   '@eslint/js': ^10.0.1
-  '@hocuspocus/extension-logger': ^3.4.4
+  '@hocuspocus/extension-logger': ^4.0.0
   '@hocuspocus/extension-sqlite': ^3.4.4
   '@hocuspocus/provider': ^3.4.4
   '@hocuspocus/server': ^3.4.4
