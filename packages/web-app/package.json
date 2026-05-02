@@ -43,7 +43,7 @@
     "@types/node": "catalog:",
     "angular-eslint": "catalog:",
     "eslint": "catalog:",
-    "eslint-plugin-storybook": "10.3.5",
+    "eslint-plugin-storybook": "10.3.6",
     "jasmine-core": "catalog:",
     "jsdom": "catalog:",
     "lefthook": "catalog:",
